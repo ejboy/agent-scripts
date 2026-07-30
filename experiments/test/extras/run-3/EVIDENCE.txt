@@ -1,0 +1,38 @@
+PVR Labs Financial Engine App compatibility evidence — Run 3
+
+Date: 2026-07-30
+mvn-lite SHA-256: 67087048b3adade3d9ffcc6b562b5c930bc78ea43c1068a90436de3d51465a37
+
+Purpose:
+Post-adoption validation using the installed mvn-lite through the application's
+developer-facing build wrapper.
+
+Integrated common tests:
+Command: ./scripts/build common
+Status: 0
+stdout: 16 bytes, 4 words, 1 line
+stderr: 0 bytes, 0 words, 0 lines
+Output: PASS · 4.240 s
+
+Migration verification:
+- scripts/build invoked ./scripts/mvn-lite.
+- The legacy scripts/mvn and scripts/launch-ai-chrome.sh were removed.
+- scripts/mvn-lite and scripts/launch-browser match the agent-scripts 0.1.0 files.
+- The build wrapper fixture test and both shared helper fixture suites passed.
+
+Immediate plugin cause:
+Before the permitted build, the workspace sandbox prevented Surefire from creating
+the application's normal target/surefire directory. mvn-lite preserved status 1
+and emitted this bounded actionable summary:
+
+Goal: org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test)
+Cause: java.io.IOException: Unable to create temporary directory
+
+The complete Maven log was retained and identified. This supplies real-application
+evidence for the immediate plugin-cause extraction that Run 2 could not reproduce.
+The subsequent permitted build passed, confirming the failure was environmental.
+
+Conclusion:
+The application adopted mvn-lite successfully. The installed path preserves the
+compact successful output demonstrated in Runs 1 and 2, and the real environmental
+plugin failure produced an actionable bounded cause with a retained full log.

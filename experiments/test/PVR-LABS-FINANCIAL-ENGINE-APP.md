@@ -2,7 +2,7 @@
 
 First run: 2026-07-30
 
-Status: Runs 1 and 2 complete.
+Status: Runs 1–3 complete; experiment concluded.
 
 ## Run history
 
@@ -10,6 +10,7 @@ Status: Runs 1 and 2 complete.
 | --- | --- | --- | --- |
 | 1 | Original `mvn-lite` (`302e6dc4750…`) | Compatibility and initial output-efficiency baseline | Complete |
 | 2 | Updated failure summaries (`4f2a542d4e7…`) | Repeat the comparison after bounded summary improvements | Complete |
+| 3 | Installed `mvn-lite` (`67087048b3ad…`) | Post-adoption validation through the application build wrapper | Complete |
 
 ## Executive summary
 
@@ -46,6 +47,14 @@ was unchanged, while invalid-lifecycle output fell from 873 to 228 bytes and rem
 actionable. Run 2 confirms that `mvn-lite` is ready to replace the application's
 existing low-noise Maven helper. Broader failure-corpus testing should continue as
 validation of `mvn-lite`, not as a prerequisite for maintaining two wrappers.
+
+Run 3 validated the completed replacement through the application's installed
+`./scripts/build common` path. It exited 0 and emitted 16 bytes:
+`PASS · 4.240 s`. A sandbox-induced Surefire failure also supplied the missing
+real-application evidence for bounded immediate-cause extraction before the same
+build passed with normal filesystem permission. The adoption experiment is
+therefore concluded; broader failure-corpus work belongs to ongoing `mvn-lite`
+product validation.
 
 ## Research questions
 
@@ -571,3 +580,45 @@ not blockers to replacement.
 Supporting aggregate evidence and captured successful compact outputs are under
 `extras/run-2/`. Raw Maven outputs remain in temporary storage and are not published
 because they contain application-identifying paths and source details.
+
+## Run 3 — Post-adoption validation
+
+Run 3 tested the integrated application state after replacing `scripts/mvn` with
+`scripts/mvn-lite` and updating `scripts/build` to invoke it. The installed helper
+had SHA-256
+`67087048b3adade3d9ffcc6b562b5c930bc78ea43c1068a90436de3d51465a37`
+and matched the `agent-scripts` 0.1.0 source file byte for byte.
+
+The developer-facing command completed successfully:
+
+| Scenario | Command | Status | Bytes | Words | Lines | Output |
+| --- | --- | ---: | ---: | ---: | ---: | --- |
+| Integrated common tests | `./scripts/build common` | 0 | 16 | 4 | 1 | `PASS · 4.240 s` |
+
+Standard error was empty. The successful output exactly matched the 16-byte size
+measured for `mvn-lite` in Runs 1 and 2.
+
+The restricted workspace initially prevented Surefire from creating its normal
+`target/surefire` directory. This environmental failure preserved status 1,
+retained the complete Maven log, and produced a bounded summary identifying both
+the Surefire goal and the immediate `Unable to create temporary directory` cause.
+The subsequent run with normal project write permission passed. This provides the
+real-application immediate-cause evidence that Run 2 attempted but did not obtain.
+
+Run 3 also verified that:
+
+- `scripts/build` delegates compact builds to `./scripts/mvn-lite`
+- the shared Maven and browser scripts match their `agent-scripts` sources
+- the application build-wrapper fixture test passes with the shared output contract
+- the legacy Maven and browser launchers have been removed
+
+Aggregate, sanitized evidence is retained in `extras/run-3/EVIDENCE.txt`. The raw
+Maven log is not published because it contains application-specific paths and
+details.
+
+### Final decision
+
+The application-level adoption is successful, and this compatibility experiment is
+complete. Future compiler, test, dependency, plugin, and fallback-corpus runs should
+be tracked as ongoing `mvn-lite` validation rather than as additional adoption
+gates for this application.
