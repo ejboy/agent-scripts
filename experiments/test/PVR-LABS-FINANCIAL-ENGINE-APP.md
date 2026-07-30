@@ -56,6 +56,15 @@ build passed with normal filesystem permission. The adoption experiment is
 therefore concluded; broader failure-corpus work belongs to ongoing `mvn-lite`
 product validation.
 
+## Conclusion
+
+The application successfully adopted the vendored `mvn-lite` 0.1.0 script. Its
+normal `./scripts/build common` command passed with one-line, 16-byte output, and a
+real Surefire environmental failure produced a bounded summary containing both the
+failed goal and its immediate cause while retaining the complete raw log. The
+legacy helper comparison is complete. Future failure-corpus testing belongs to
+ongoing `mvn-lite` product validation.
+
 ## Research questions
 
 The experiment asks:
@@ -68,9 +77,11 @@ The experiment asks:
    next diagnostic or corrective step?
 4. What should be improved before the application adopts `mvn-lite`?
 
-The first two questions have initial quantitative results. The third has only been
-assessed for an invalid lifecycle phase and needs the broader failure corpus
-described below.
+The experiment answered the compatibility and adoption questions for the tested
+application workflow. It also produced real-application evidence for bounded
+immediate-cause extraction during a Surefire environmental failure. Broader
+compiler, test, dependency, plugin, and fallback coverage remains ongoing
+`mvn-lite` product validation rather than an application-adoption requirement.
 
 ## Systems under comparison
 
@@ -81,9 +92,9 @@ suppression, and color disabled. Output is streamed normally and is not quieted.
 
 ### Existing low-noise helper
 
-The application's current `scripts/mvn` wrapper. It invokes `./mvnw` with
-`-q -B -ntp`, buffers output, retains logs, preserves Maven's status, and prints a
-bounded failure summary or log tail.
+The application's former `scripts/mvn` wrapper, used as the Run 1 and Run 2
+comparison baseline. It invokes `./mvnw` with `-q -B -ntp`, buffers output, retains
+logs, preserves Maven's status, and prints a bounded failure summary or log tail.
 
 ### `mvn-lite`
 
@@ -108,7 +119,7 @@ still keeping agent-visible output compact.
 | Shell | GNU Bash 3.2.57 |
 | Application shape | Four-module Maven application |
 | Tested scope | `common` module, 102 unit tests |
-| `mvn-lite` SHA-256 | `302e6dc4750e57f60cec8aa6c3e97741f12cf8805f44ab3ece27660e91c80c6c` |
+| Run 1 `mvn-lite` SHA-256 | `302e6dc4750e57f60cec8aa6c3e97741f12cf8805f44ab3ece27660e91c80c6c` |
 | Existing helper SHA-256 | `f6a056d393d05ef084fcae1ce879e07b6f004c02c6ad28844b159e7857055414` |
 
 Application commit identifiers, artifact coordinates, package names, repository
@@ -228,27 +239,29 @@ by `mvn-lite`:
 The build wrapper's own `--full` option already bypasses the helper and invokes
 `./mvnw`, so its behavior would remain unchanged.
 
-## Differences from the current helper
+## Differences from the former helper
 
 This is command-compatible but not output-policy-identical:
 
-- The current helper prints `BUILD_LABEL`, such as `PASS common tests`.
+- The former helper prints `BUILD_LABEL`, such as `PASS common tests`.
   Unmodified `mvn-lite` prints `PASS · <Maven total time>`.
-- The current helper retains all logs under `.build-logs/maven/`.
+- The former helper retains all logs under `.build-logs/maven/`.
   `mvn-lite` defaults to `.agent-logs/maven/` and deletes successful logs unless
   `--keep-log` is supplied.
 - `mvn-lite` adds `-B`, `-ntp`, and `-Dstyle.color=never` in compact mode. It does
-  not add the current helper's `-q`, allowing its private raw log to contain useful
+  not add the former helper's `-q`, allowing its private raw log to contain useful
   lifecycle, timing, and test evidence.
 - `mvn-lite` preserves Maven's exit status and retains failure logs. Its own
   fixture suite also passed during this experiment.
 
-## Run 1 recommendations
+## Findings and actions from Run 1
 
-Adopt `mvn-lite` as the replacement for `scripts/mvn`, but make the following
-agent-output improvements first.
+Run 1 identified the following possible improvements and migration decisions.
+Their final disposition is recorded below.
 
 ### 1. Shorten verbose Maven command errors
+
+**Disposition: Implemented and validated in Run 2.**
 
 The invalid-lifecycle summary repeats Maven's complete list of lifecycle phases.
 That information increased the measured `mvn-lite` failure output to 873 bytes even
@@ -258,13 +271,18 @@ though the actionable evidence is only:
 Maven: Unknown lifecycle phase "definitely-not-a-maven-phase"
 ```
 
-Keep the complete message in the retained raw log, but reduce the compact summary
-to the first actionable sentence. This should produce a substantially larger token
-reduction than the measured 37.3% while preserving diagnostic value.
+Run 1 proposed keeping the complete message in the retained raw log while reducing
+the compact summary to the first actionable sentence. The expected result was a
+substantially larger token reduction than the measured 37.3% while preserving
+diagnostic value.
 
 ### 2. Preserve an optional build label
 
-The existing helper prints a useful scope label:
+**Disposition: Deferred.** Label-free success output was explicitly accepted as
+part of the application migration. Project-specific build vocabulary remains
+outside the generic wrapper.
+
+The former helper prints a useful scope label:
 
 ```text
 PASS common tests
@@ -277,17 +295,21 @@ PASS · 3.944 s
 ```
 
 The outputs differ by only two bytes in this experiment, so removing the scope
-provides no meaningful efficiency gain. Add an optional generic environment
-variable such as `MVN_LITE_LABEL`, allowing the application wrapper to produce:
+provides no meaningful efficiency gain. Run 1 proposed an optional generic
+environment variable such as `MVN_LITE_LABEL`, which would allow the application
+wrapper to produce:
 
 ```text
 PASS common tests · 3.944 s
 ```
 
-The label should remain optional so `mvn-lite` does not acquire application-specific
-build vocabulary.
+The migration explicitly accepted label-free output, so this proposal was not
+required for adoption.
 
 ### 3. Improve immediate-cause extraction
+
+**Disposition: Implemented in Run 2 and validated against a real Surefire
+environmental failure in Run 3.**
 
 When a Maven plugin goal fails before emitting a standard compiler or test failure,
 the compact output may contain only the plugin goal. During an environmental
@@ -295,14 +317,19 @@ Surefire failure, for example, the raw log contained an actionable
 `Unable to create temporary directory` cause that was absent from the compact
 summary.
 
-Recognize the immediate cause from standard `Failed to execute goal ... failed:`
-messages and include a bounded `Cause:` entry. Keep the raw log authoritative and
-avoid attempting to reconstruct arbitrary exception chains.
+Run 1 proposed recognizing the immediate cause from standard
+`Failed to execute goal ... failed:` messages and including a bounded `Cause:`
+entry, while keeping the raw log authoritative and avoiding reconstruction of
+arbitrary exception chains.
 
 ### 4. Add output-size regression tests
 
-The fixture suite already checks diagnostic content and bounded unknown-failure
-tails. Extend it with maximum byte budgets for:
+**Disposition: Implemented for the bounded Maven-command and plugin-cause forms
+added during this experiment. Broader category coverage remains ongoing product
+validation.**
+
+The fixture suite already checked diagnostic content and bounded unknown-failure
+tails. Run 1 proposed extending it with maximum byte budgets for:
 
 - compiler failures
 - unit- and integration-test failures
@@ -316,32 +343,41 @@ diagnostic and raw-log path are present.
 
 ### 5. Benchmark the complete failure corpus
 
-Before replacing the existing helper, compare both implementations against the
-fixed failure corpus described in the token-efficiency section below. The initial
-success and invalid-phase results are encouraging, but they do not establish that
-every failure category is both smaller and equally useful.
+**Disposition: Deferred from the application-adoption gate.** Future corpus work
+should validate the reusable `mvn-lite` product rather than preserve two
+application wrappers for comparison.
+
+Run 1 proposed comparing both implementations against the fixed failure corpus
+described in the token-efficiency section below before replacement. The initial
+success and invalid-phase results were encouraging, but did not establish that
+every failure category was both smaller and equally useful.
 
 ### 6. Adopt failure-only log retention
 
-Retain every failed compact-build log and delete successful logs by default. Use
-`--keep-log` only for flaky-test investigations, timing comparisons, or explicit
-audit needs.
+**Disposition: Accepted and adopted.** Successful logs are deleted by default,
+failed logs are retained, and `--keep-log` remains available for explicit
+successful-log retention.
 
-Add `.agent-logs/` to the application's `.gitignore` and update its agent guidance.
-Set `MVN_LITE_LOG_DIR` only if preserving the existing failure-log location is
-valuable enough to justify a project-specific setting.
+Run 1 proposed retaining every failed compact-build log and deleting successful
+logs by default, with `--keep-log` reserved for flaky-test investigations, timing
+comparisons, or explicit audit needs.
 
-### Recommended implementation order
+It also proposed adding `.agent-logs/` to the application's `.gitignore` and
+updating its agent guidance, with `MVN_LITE_LOG_DIR` used only if preserving the
+existing failure-log location justified a project-specific setting.
 
-1. Shorten verbose Maven command errors.
-2. Add optional success labels.
-3. Improve bounded immediate-cause extraction.
-4. Add diagnostic and output-size regression tests.
-5. Run the complete comparison corpus.
-6. Replace the application's `scripts/mvn` and update its documentation.
+### Run 1 outcome
 
-No Financial Engine App source or script was changed by this experiment. Maven
-updated normal incremental files under `common/target`, and the project remained
+1. Verbose Maven command errors were shortened.
+2. Bounded immediate-cause extraction was added.
+3. Focused fixture and byte-budget tests were added.
+4. Label-free success output was explicitly accepted.
+5. Failure-only log retention was adopted.
+6. The application replaced its legacy helper with the shared `mvn-lite`.
+7. Broader failure-corpus work was moved to ongoing product validation.
+
+During Run 1, no Financial Engine App source or script was changed. Maven updated
+normal incremental files under `common/target`, and the project remained
 git-clean.
 
 ## Run 1 agent token-efficiency comparison
@@ -416,7 +452,7 @@ should not count as a win.
 The included `extras/run-1/measure-agent-output.sh` script reports exact size
 metrics and the four-bytes-per-token estimate for captured output files.
 
-## Qualitative assessment
+## Run 1 qualitative assessment
 
 | Scenario and property | Vanilla Maven | Existing helper | `mvn-lite` |
 | --- | --- | --- | --- |
@@ -479,14 +515,19 @@ wrapper checksums.
 
 ## Article guidance
 
-The current evidence supports narrowly stated claims:
+The final evidence supports narrowly stated claims:
 
 - In this application experiment, `mvn-lite` reduced successful agent-visible
-  output from 6,753 bytes to 16 bytes relative to vanilla Maven.
-- For the measured invalid lifecycle error, it reduced output from 2,730 bytes to
-  873 bytes while preserving the failure status and actionable command error.
-- Relative to an existing custom low-noise wrapper, the success outputs were
-  effectively tied, while `mvn-lite` reduced the measured failure output by 37.3%.
+  output from 6,753 bytes to 16 bytes relative to vanilla Maven, a reduction of
+  more than 99.7%.
+- For the measured invalid-lifecycle error, updated `mvn-lite` reduced output from
+  2,730 bytes to 228 bytes, a 91.6% reduction, while preserving the exit status,
+  actionable phase name, full-log pointer, and rerun guidance.
+- Relative to the application's existing low-noise helper, successful output was
+  effectively tied, while updated `mvn-lite` reduced the measured
+  invalid-lifecycle output from 1,393 bytes to 228 bytes, an 83.6% reduction.
+- Run 3 validated the installed application integration and demonstrated bounded
+  immediate-cause extraction against a real Surefire environmental failure.
 
 The current evidence does not support claims that `mvn-lite` always saves a fixed
 percentage, improves Maven execution time, or produces sufficient diagnostics for
