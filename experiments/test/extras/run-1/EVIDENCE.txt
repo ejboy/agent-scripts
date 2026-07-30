@@ -1,0 +1,35 @@
+PVR Labs Financial Engine App compatibility evidence
+
+Baseline exit status: 0
+mvn-lite exit status: 0
+
+Baseline output:
+PASS common tests
+
+mvn-lite output:
+PASS · 3.944 s
+
+Maven result:
+Tests run: 102, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+
+Agent-output efficiency
+
+Successful common tests:
+Vanilla Maven:   6,753 bytes, 684 words, 90 lines
+Existing helper: 18 bytes, 3 words, 1 line
+mvn-lite:        16 bytes, 4 words, 1 line
+
+Invalid lifecycle phase:
+Vanilla Maven:   2,730 bytes, 200 words, 35 lines, status 1
+Existing helper: 1,393 bytes, 133 words, 20 lines, status 1
+mvn-lite:          873 bytes,  72 words,  9 lines, status 1
+
+mvn-lite reduction relative to the existing helper:
+Failure output: 520 bytes (37.3%)
+Approximate tokens: 349 to 219 (~130 tokens)
+
+mvn-lite reduction relative to vanilla Maven:
+Successful output: 6,737 bytes (99.8%)
+Failure output: 1,857 bytes (68.0%)
+Approximate failure tokens: 683 to 219 (~464 tokens)

@@ -36,6 +36,13 @@ Full Maven log:
 Re-run with --full for complete live output.
 ```
 
+A standard plugin failure with a clear same-line cause can include:
+
+```text
+  Goal: org.example:example-plugin:1.0:run (default)
+  Cause: Generated output directory is not writable
+```
+
 ## Installation
 
 Repository-local installation keeps the wrapper reviewed and versioned with the application:

@@ -36,8 +36,36 @@ case "${FAKE_MODE:-success}" in
 		printf '%s\n' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-enforcer-plugin:enforce on project app'
 		exit 9
 		;;
+	goal-cause)
+		printf '%s\n' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project app: Execution default-test failed: Unable to create temporary directory -> [Help 1]'
+		printf '%s\n' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (secondary-test) on project app: Execution secondary-test failed: Unable to create temporary directory -> [Help 1]'
+		exit 11
+		;;
+	goal-mojo-cause)
+		printf '%s\n' '[ERROR] Failed to execute goal org.example:example-plugin:1.0:run (default) on project app: org.apache.maven.plugin.MojoExecutionException: Generated output directory is not writable -> [Help 1]'
+		exit 12
+		;;
 	maven-command-error)
-		printf '%s\n' '[ERROR] Unknown lifecycle phase "teest". You must specify a valid lifecycle phase or a goal'
+		printf '%s\n' '[ERROR] Unknown lifecycle phase "teest". You must specify a valid lifecycle phase or a goal in the format <plugin-prefix>:<goal>. Available lifecycle phases are: pre-clean, clean, post-clean, validate, compile, test, package, verify, install, deploy. -> [Help 1]'
+		exit 2
+		;;
+	maven-no-plugin)
+		printf '%s\n' "[ERROR] No plugin found for prefix 'missing' in the current project and in the plugin groups [org.apache.maven.plugins, org.codehaus.mojo] available from the repositories [local (/tmp/repository), central (https://repo.maven.apache.org/maven2)] -> [Help 1]"
+		exit 2
+		;;
+	maven-parent-pom)
+		printf '%s\n' "[ERROR] Non-resolvable parent POM for com.example:app:1.0: The following artifacts could not be resolved: com.example:parent:pom:1.0 (absent): Could not find artifact com.example:parent:pom:1.0 in central and 'parent.relativePath' points at wrong local POM @ /workspace/pom.xml, line 5, column 11 -> [Help 2]"
+		exit 2
+		;;
+	maven-requires-project)
+		printf '%s\n' '[ERROR] The goal you specified requires a project to execute but there is no POM in this directory (/workspace). Please verify you invoked Maven from the correct directory. -> [Help 1]'
+		exit 2
+		;;
+	maven-pom-problems)
+		printf '%s\n' '[ERROR] Some problems were encountered while processing the POMs: -> [Help 1]'
+		printf '%s\n' '[ERROR]'
+		printf '%s\n' "[ERROR] 'dependencies.dependency.version' for com.example:library:jar is missing. @ /workspace/pom.xml, line 24, column 15 -> [Help 2]"
+		printf '%s\n' "[ERROR] 'build.plugins.plugin.version' for org.example:plugin is missing. @ /workspace/pom.xml, line 30, column 17"
 		exit 2
 		;;
 	unknown)

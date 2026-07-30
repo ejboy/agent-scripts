@@ -100,7 +100,44 @@ extract_failure_summary() {
 	awk -v project_root="$project_dir/" '
 		function clean(line) {
 			sub(/^\[ERROR\][[:space:]]*/, "", line)
-			return line
+			return trim(line)
+		}
+		function trim(value) {
+			sub(/^[[:space:]]+/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			return value
+		}
+		function drop_help(value) {
+			sub(/[[:space:]]*->[[:space:]]*\[Help [0-9]+\][[:space:]]*$/, "", value)
+			return trim(value)
+		}
+		function drop_pom_location(value) {
+			sub(/[[:space:]]+@[[:space:]]*line[[:space:]]+[0-9]+,[[:space:]]*column[[:space:]]+[0-9]+.*$/, "", value)
+			sub(/[[:space:]]+@[^@]*,[[:space:]]*line[[:space:]]+[0-9]+,[[:space:]]*column[[:space:]]+[0-9]+.*$/, "", value)
+			return drop_help(value)
+		}
+		function immediate_goal_cause(line, suffix, marker) {
+			suffix = line
+			if (!sub(/^.* on project [^:]+:[[:space:]]*/, "", suffix)) {
+				return ""
+			}
+			if (suffix ~ /^Execution /) {
+				marker = index(suffix, " failed:")
+				if (!marker) {
+					return ""
+				}
+				suffix = substr(suffix, marker + length(" failed:"))
+			} else if (suffix ~ /^([[:alnum:]_.]+\.)?MojoExecutionException:/) {
+				sub(/^([[:alnum:]_.]+\.)?MojoExecutionException:[[:space:]]*/, "", suffix)
+			} else if (suffix ~ /^Failed to execute goal /) {
+				if (!sub(/^Failed to execute goal .* on project [^:]+:[[:space:]]*/, "", suffix)) {
+					return ""
+				}
+			} else {
+				return ""
+			}
+			sub(/^([[:alnum:]_.]+\.)?MojoExecutionException:[[:space:]]*/, "", suffix)
+			return drop_help(suffix)
 		}
 		function add(label, value, key) {
 			if (value == "") {
@@ -162,19 +199,57 @@ extract_failure_summary() {
 				expect_exception = 0
 			}
 		}
+		expect_pom_problem && /^\[ERROR\]/ {
+			line = clean($0)
+			if (line != "") {
+				add("Maven", drop_pom_location(line))
+				expect_pom_problem = 0
+			}
+			next
+		}
+		/^\[ERROR\] Non-resolvable parent POM/ {
+			add("Maven", drop_pom_location(clean($0)))
+			next
+		}
 		/^\[ERROR\].*(Could not resolve dependencies for project|Could not find artifact|Failed to collect dependencies|Non-resolvable import POM|Could not transfer artifact)/ {
 			add("Dependency", clean($0))
 			next
 		}
 		/^\[ERROR\] Failed to execute goal / {
 			line = clean($0)
+			cause = immediate_goal_cause(line)
 			sub(/^Failed to execute goal[[:space:]]+/, "", line)
 			sub(/[[:space:]]+on project .*/, "", line)
 			add("Goal", line)
+			add("Cause", cause)
 			next
 		}
-		/^\[ERROR\] (Unknown lifecycle phase|No plugin found for prefix|Non-resolvable parent POM|The goal you specified requires a project|Some problems were encountered while processing the POMs)/ {
-			add("Maven", clean($0))
+		/^\[ERROR\] Unknown lifecycle phase / {
+			line = clean($0)
+			if (match(line, /^Unknown lifecycle phase "[^"]*"/)) {
+				line = substr(line, RSTART, RLENGTH)
+			} else {
+				sub(/\. You must specify.*/, "", line)
+				line = drop_help(line)
+			}
+			add("Maven", line)
+			next
+		}
+		/^\[ERROR\] No plugin found for prefix / {
+			line = clean($0)
+			sub(/[[:space:]]+available from the repositories .*/, "", line)
+			add("Maven", drop_help(line))
+			next
+		}
+		/^\[ERROR\] The goal you specified requires a project/ {
+			line = clean($0)
+			sub(/\. Please .*/, "", line)
+			add("Maven", drop_help(line))
+			next
+		}
+		/^\[ERROR\] Some problems were encountered while processing the POMs/ {
+			add("Maven", drop_help(clean($0)))
+			expect_pom_problem = 1
 			next
 		}
 		END {
@@ -188,6 +263,7 @@ extract_failure_summary() {
 	' "$log_file"
 }
 
+# shellcheck disable=SC2329 # Invoked indirectly by the INT and TERM traps.
 forward_signal() {
 	local signal="$1"
 	local status="$2"

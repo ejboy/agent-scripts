@@ -12,6 +12,10 @@ Compact output is a presentation layer, not a replacement for diagnostics. `mvn-
 
 `mvn-lite` is optimized for common build, test, package, install, and verification workflows. It does not attempt to classify every reporting or inspection goal. Ordinary Maven output remains available through `--full`, and Maven help and version commands pass through automatically.
 
+## High-value coverage over completeness
+
+`mvn-lite` prioritizes the Maven workflows and failure modes most valuable during local development. It aims to handle common cases exceptionally well rather than model every Maven goal, plugin, and output format. Rare cases should fall back predictably to ordinary Maven output or the retained raw log, and should be added only when real usage demonstrates sufficient value.
+
 ## Fast defaults
 
 The smallest useful verification command should be easy to run. `mvn-lite` adds only output-oriented Maven settings in compact mode; it does not choose modules, goals, profiles, or test tiers.

@@ -29,6 +29,24 @@ assert_file_contains() {
 	grep -Fq -- "$2" "$1" || fail_test "expected $1 to contain: $2"
 }
 
+assert_output_under_bytes() {
+	local output="$1"
+	local limit="$2"
+	local byte_count
+	byte_count="$(printf '%s' "$output" | wc -c)"
+	((byte_count < limit)) || fail_test "expected output below $limit bytes, got $byte_count"
+}
+
+assert_output_occurrences() {
+	local output="$1"
+	local text="$2"
+	local expected="$3"
+	local actual
+	actual="$(grep -Fc -- "$text" <<<"$output")"
+	[[ "$actual" -eq "$expected" ]] ||
+		fail_test "expected $expected occurrences of '$text', got $actual"
+}
+
 assert_args() {
 	local expected_file="$test_root/expected-args"
 	printf '%s\n' "$@" >"$expected_file"
@@ -58,6 +76,7 @@ output="$(run_from_project test)"
 assert_file_contains "$FAKE_INVOKED_FILE" "wrapper"
 assert_args -B -ntp -Dstyle.color=never test
 [[ "$output" == "PASS · 1.234 s" ]] || fail_test "unexpected compact success output: $output"
+[[ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]] || fail_test "compact success output was not one line"
 if find "$project/.agent-logs" -type f -name '*.log' -print -quit | grep -q .; then
 	fail_test "successful compact log was not removed"
 fi
@@ -178,7 +197,39 @@ status=$?
 set -e
 [[ "$status" -eq 9 ]] || fail_test "goal status was $status"
 [[ "$output" == *'Goal: org.apache.maven.plugins:maven-enforcer-plugin:enforce'* ]] || fail_test "plugin goal missing"
+[[ "$output" != *'Cause:'* ]] || fail_test "goal-only failure invented a cause"
 [[ "$output" != *'surefire-reports'* ]] || fail_test "non-test failure showed test hints"
+[[ "$output" == *'Full Maven log:'* ]] || fail_test "goal-only failure log path missing"
+
+export FAKE_MODE=goal-cause
+set +e
+output="$(run_from_project test 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 11 ]] || fail_test "goal-cause status was $status"
+[[ "$output" == *'Goal: org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test)'* ]] ||
+	fail_test "goal-cause plugin goal missing"
+[[ "$output" == *'Cause: Unable to create temporary directory'* ]] ||
+	fail_test "immediate plugin cause missing"
+assert_output_occurrences "$output" 'Cause: Unable to create temporary directory' 1
+[[ "$output" != *'Execution default-test failed:'* ]] || fail_test "execution scaffolding remained in cause"
+[[ "$output" != *'MojoExecutionException'* ]] || fail_test "MojoExecutionException remained in cause"
+[[ "$output" != *'Help 1'* ]] || fail_test "Help reference remained in cause output"
+[[ "$output" == *'Full Maven log:'* ]] || fail_test "goal-cause failure log path missing"
+assert_output_under_bytes "$output" 1000
+log_file="$(failure_log_from_output "$output")"
+[[ -f "$log_file" ]] || fail_test "goal-cause failure log missing"
+assert_file_contains "$log_file" 'Execution default-test failed: Unable to create temporary directory -> [Help 1]'
+
+export FAKE_MODE=goal-mojo-cause
+set +e
+output="$(run_from_project test 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 12 ]] || fail_test "MojoExecutionException cause status was $status"
+[[ "$output" == *'Cause: Generated output directory is not writable'* ]] ||
+	fail_test "MojoExecutionException cause missing"
+[[ "$output" != *'MojoExecutionException'* ]] || fail_test "MojoExecutionException scaffolding remained"
 
 export FAKE_MODE=maven-command-error
 set +e
@@ -186,7 +237,68 @@ output="$(run_from_project teest 2>&1)"
 status=$?
 set -e
 [[ "$status" -eq 2 ]] || fail_test "Maven command error status was $status"
-[[ "$output" == *'Maven: Unknown lifecycle phase'* ]] || fail_test "Maven command error summary missing"
+[[ "$output" == *'Maven: Unknown lifecycle phase "teest"'* ]] || fail_test "Maven command error summary missing"
+[[ "$output" != *'Available lifecycle phases'* ]] || fail_test "lifecycle listing remained in compact output"
+[[ "$output" != *'You must specify a valid lifecycle phase'* ]] || fail_test "lifecycle guidance remained in compact output"
+[[ "$output" != *'Help 1'* ]] || fail_test "lifecycle Help reference remained in compact output"
+[[ "$output" == *'Full Maven log:'* ]] || fail_test "Maven command failure log path missing"
+assert_output_under_bytes "$output" 1000
+log_file="$(failure_log_from_output "$output")"
+[[ -f "$log_file" ]] || fail_test "Maven command failure log missing"
+assert_file_contains "$log_file" 'Available lifecycle phases are:'
+
+export FAKE_MODE=maven-no-plugin
+set +e
+output="$(run_from_project validate 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 2 ]] || fail_test "missing-plugin status was $status"
+[[ "$output" == *"Maven: No plugin found for prefix 'missing' in the current project and in the plugin groups [org.apache.maven.plugins, org.codehaus.mojo]"* ]] ||
+	fail_test "missing-plugin subject or groups missing"
+[[ "$output" != *'available from the repositories'* ]] || fail_test "repository listing remained in missing-plugin output"
+[[ "$output" != *'Help 1'* ]] || fail_test "missing-plugin Help reference remained"
+assert_output_under_bytes "$output" 1000
+
+export FAKE_MODE=maven-parent-pom
+set +e
+output="$(run_from_project validate 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 2 ]] || fail_test "parent-POM status was $status"
+[[ "$output" == *'Maven: Non-resolvable parent POM for com.example:app:1.0:'* ]] ||
+	fail_test "parent-POM coordinates missing"
+[[ "$output" == *'Could not find artifact com.example:parent:pom:1.0 in central'* ]] ||
+	fail_test "parent-POM resolution reason missing"
+[[ "$output" != *'@ /workspace/pom.xml'* ]] || fail_test "parent-POM location suffix remained"
+[[ "$output" != *'Help 2'* ]] || fail_test "parent-POM Help reference remained"
+assert_output_under_bytes "$output" 1000
+
+export FAKE_MODE=maven-requires-project
+set +e
+output="$(run_from_project validate 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 2 ]] || fail_test "requires-project status was $status"
+[[ "$output" == *'Maven: The goal you specified requires a project to execute but there is no POM in this directory (/workspace)'* ]] ||
+	fail_test "requires-project sentence missing"
+[[ "$output" != *'Please verify'* ]] || fail_test "requires-project continuation remained"
+[[ "$output" != *'Help 1'* ]] || fail_test "requires-project Help reference remained"
+assert_output_under_bytes "$output" 1000
+
+export FAKE_MODE=maven-pom-problems
+set +e
+output="$(run_from_project validate 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 2 ]] || fail_test "POM-problems status was $status"
+[[ "$output" == *'Maven: Some problems were encountered while processing the POMs:'* ]] ||
+	fail_test "POM-problems heading missing"
+[[ "$output" == *"Maven: 'dependencies.dependency.version' for com.example:library:jar is missing."* ]] ||
+	fail_test "first concrete POM problem missing"
+[[ "$output" != *'build.plugins.plugin.version'* ]] || fail_test "more than one concrete POM problem was included"
+[[ "$output" != *'@ /workspace/pom.xml'* ]] || fail_test "POM-problem location suffix remained"
+[[ "$output" != *'Help 2'* ]] || fail_test "POM-problem Help reference remained"
+assert_output_under_bytes "$output" 1000
 
 export FAKE_MODE=unknown
 set +e
