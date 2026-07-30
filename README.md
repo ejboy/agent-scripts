@@ -2,6 +2,9 @@
 
 Maven build logs often consume far more coding-agent context than the actual failure. `mvn-lite` keeps normal Maven command syntax and exit behavior while providing compact output for common build and verification workflows.
 
+Public, standalone utilities live under `scripts/`. Repository release tooling lives
+separately under `maintainers/` and is not part of the public utility interface.
+
 ## mvn-lite
 
 *Introverted Maven for coding agents.*
@@ -126,11 +129,25 @@ A project may optionally define its own `./scripts/build` wrapper for project-sp
 ./scripts/launch-browser --visible
 ./scripts/launch-browser --foreground --isolated
 ./scripts/launch-browser --stop
+./scripts/launch-browser --help
 ```
 
 Successful detached launches record their service label and PID in `~/.browser-testing-profile/launch-state`, alongside the existing persistent browser profile. `--stop` validates that the recorded service uses the `xyz.pvrlabs.browser.*` prefix, asks `launchctl` to stop it, and verifies that both the recorded PID and DevTools endpoint have stopped before removing state. If the recorded PID still owns port `9222` after service removal, the script terminates that process directly. It never kills an arbitrary process merely because it uses port `9222`.
 
 The temporary launch log is removed when Chrome exits normally; abnormal-exit logs remain available for diagnostics.
+
+## Maintaining releases
+
+The root `VERSION` is the canonical release version. Public scripts embed that
+version so copied files retain their identity and provenance. Maintainers can update
+all registered scripts and run validation with:
+
+```bash
+./maintainers/bump-version 0.2.0
+```
+
+The maintainer command updates files and shows the resulting diff; it does not
+commit or tag the release.
 
 ## Status
 

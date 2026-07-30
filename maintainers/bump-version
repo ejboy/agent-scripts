@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# Updates the shared release version in VERSION and all public scripts, then validates the repository.
+
+set -euo pipefail
+
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+version_file="$repo_root/VERSION"
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 1
+}
+
+if (($# != 1)); then
+	printf 'Usage: ./maintainers/bump-version <major.minor.patch>\n' >&2
+	exit 2
+fi
+
+new_version="$1"
+[[ "$new_version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] ||
+	fail "version must use major.minor.patch SemVer without a prefix or suffix"
+
+cd "$repo_root"
+./tests/test-versions.sh
+
+current_version="$(<"$version_file")"
+[[ "$new_version" != "$current_version" ]] ||
+	fail "version is already $new_version"
+
+update_script_version() {
+	local script_path="$1"
+	local script_name="$2"
+	local constant_name="$3"
+
+	sed -E -i.bak \
+		-e "s/^# $script_name [0-9]+\.[0-9]+\.[0-9]+$/# $script_name $new_version/" \
+		-e "s/^readonly $constant_name=\"[0-9]+\.[0-9]+\.[0-9]+\"$/readonly $constant_name=\"$new_version\"/" \
+		"$script_path"
+	rm -f -- "$script_path.bak"
+}
+
+printf '%s\n' "$new_version" >"$version_file"
+update_script_version scripts/mvn-lite mvn-lite AGENT_SCRIPTS_VERSION
+update_script_version scripts/launch-browser launch-browser AGENT_SCRIPTS_VERSION
+
+./tests/test-versions.sh
+./tests/test-mvn-lite.sh
+./tests/test-launch-browser.sh
+if command -v shellcheck >/dev/null 2>&1; then
+	shellcheck --severity=warning \
+		scripts/mvn-lite scripts/launch-browser tests/*.sh maintainers/bump-version
+fi
+
+printf '\nUpdated agent-scripts from %s to %s.\n\n' "$current_version" "$new_version"
+git diff -- VERSION scripts/mvn-lite scripts/launch-browser

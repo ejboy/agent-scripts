@@ -73,7 +73,7 @@ EOF
 chmod +x "$project/mvnw"
 
 version_comment="$(sed -n 's/^# mvn-lite //p' "$runner" | head -n 1)"
-version_constant="$(sed -n 's/^readonly MVN_LITE_VERSION="\([^"]*\)"$/\1/p' "$runner")"
+version_constant="$(sed -n 's/^readonly AGENT_SCRIPTS_VERSION="\([^"]*\)"$/\1/p' "$runner")"
 [[ -n "$version_comment" && "$version_comment" == "$version_constant" ]] ||
 	fail_test "provenance comment and version constant differ"
 

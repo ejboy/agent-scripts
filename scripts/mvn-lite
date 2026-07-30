@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
 # mvn-lite 0.1.0
-# https://github.com/PVRLabs/agent-scripts
+# Compact Maven output for coding-agent build and test workflows.
+# https://github.com/ejboy/agent-scripts
 
 set -uo pipefail
 
-readonly MVN_LITE_VERSION="0.1.0"
+readonly AGENT_SCRIPTS_VERSION="0.1.0"
 
 project_dir="$PWD"
 log_dir="${MVN_LITE_LOG_DIR:-$project_dir/.agent-logs/maven}"
@@ -20,7 +21,7 @@ fail() {
 }
 
 print_mvn_lite_help() {
-	printf 'mvn-lite %s\n' "$MVN_LITE_VERSION"
+	printf 'mvn-lite %s\n' "$AGENT_SCRIPTS_VERSION"
 	printf 'Introverted Maven for coding agents\n\n'
 	printf 'Usage:\n'
 	printf '  mvn-lite [wrapper options] [Maven arguments]\n\n'

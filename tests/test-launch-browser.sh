@@ -42,6 +42,11 @@ run_launcher() {
 	"$root/scripts/launch-browser" "$@"
 }
 
+expected_version="$(<"$root/VERSION")"
+output="$(run_launcher --help)"
+[[ "$output" == "launch-browser $expected_version"$'\n\nUsage:'* ]] ||
+	fail_test "help version heading missing"
+
 cat >"$state_file" <<'EOF'
 service=xyz.pvrlabs.browser.123.456
 pid=9876
