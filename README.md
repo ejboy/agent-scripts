@@ -57,21 +57,27 @@ A standard plugin failure with a clear same-line cause can include:
 
 ## Installation
 
-Install `mvn-lite` into the project's `scripts/` directory from a tagged release:
+Install `mvn-lite` at the project root from a tagged release:
 
 ```bash
-mkdir -p scripts
 curl -fsSL \
   https://raw.githubusercontent.com/ejboy/agent-scripts/v0.1.0/scripts/mvn-lite \
-  -o scripts/mvn-lite
-chmod +x scripts/mvn-lite
+  -o mvn-lite
+chmod +x mvn-lite
 
-./scripts/mvn-lite test
+./mvn-lite test
 ```
 
 Add `.agent-logs/` to the project's `.gitignore`.
 
-For optional global installation or symlinking:
+Root-level installation gives the helper the same project-entrypoint ergonomics as
+`./mvnw` and `./gradlew`, and is the natural vendored location when a project only
+adopts `mvn-lite`. Projects that adopt both `mvn-lite` and `launch-browser` should
+normally keep both under `scripts/`; existing projects with a scripts convention
+may make the same choice. The `./scripts/mvn-lite` behavior is identical because
+the command always operates in the caller's current working directory.
+
+For optional global installation, symlinking, or direct use from `PATH`:
 
 ```bash
 mkdir -p ~/.local/bin
@@ -81,21 +87,35 @@ cd /path/to/project
 mvn-lite test
 ```
 
+Alternatively, add this repository's public script directory to `PATH`:
+
+```bash
+export PATH="/path/to/agent-scripts/scripts:$PATH"
+
+cd /path/to/project
+mvn-lite test
+```
+
 The command always operates on the current working directory, not the script's installation directory.
 
 ## Usage
 
+For a root-level project installation:
+
 ```bash
-mvn-lite test
-mvn-lite clean verify
-mvn-lite -pl app -am test
-mvn-lite -Dtest=SomeTest test
-mvn-lite --version
-mvn-lite --help
-mvn-lite --help-mvn-lite
-mvn-lite --full dependency:tree
-mvn-lite --keep-log verify
+./mvn-lite test
+./mvn-lite clean verify
+./mvn-lite -pl app -am test
+./mvn-lite -Dtest=SomeTest test
+./mvn-lite --version
+./mvn-lite --help
+./mvn-lite --help-mvn-lite
+./mvn-lite --full dependency:tree
+./mvn-lite --keep-log verify
 ```
+
+Use the corresponding `./scripts/mvn-lite` path for a `scripts/` installation, or
+plain `mvn-lite` for a global installation.
 
 The wrapper options are:
 
