@@ -77,6 +77,7 @@ mvn-lite -pl app -am test
 mvn-lite -Dtest=SomeTest test
 mvn-lite --version
 mvn-lite --help
+mvn-lite --help-mvn-lite
 mvn-lite --full dependency:tree
 mvn-lite --keep-log verify
 ```
@@ -86,6 +87,10 @@ The wrapper options are:
 - `--full`: ordinary live Maven output.
 - `--raw`: alias for `--full`.
 - `--keep-log`: retain the log after a successful compact run.
+- `--help-mvn-lite`: show the wrapper version, usage, and wrapper options.
+
+Maven informational options such as `--help` and `--version` continue to pass
+through to Maven.
 
 Wrapper options must appear before Maven arguments. Use `--` to end wrapper-option parsing explicitly.
 

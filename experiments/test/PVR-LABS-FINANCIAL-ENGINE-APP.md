@@ -2,14 +2,14 @@
 
 First run: 2026-07-30
 
-Status: Run 1 complete; Run 2 planned.
+Status: Runs 1 and 2 complete.
 
 ## Run history
 
 | Run | Script | Purpose | Status |
 | --- | --- | --- | --- |
 | 1 | Original `mvn-lite` (`302e6dc4750…`) | Compatibility and initial output-efficiency baseline | Complete |
-| 2 | Updated failure summaries | Repeat the comparison after bounded summary improvements | Planned |
+| 2 | Updated failure summaries (`4f2a542d4e7…`) | Repeat the comparison after bounded summary improvements | Complete |
 
 ## Executive summary
 
@@ -40,6 +40,12 @@ For agent-visible output, the measured results were:
 These results establish compatibility for the tested command and large output
 reductions for the two measured scenarios. They do not yet establish compatibility
 or diagnostic parity for every Maven failure category.
+
+Run 2 repeated those commands with the updated failure summaries. Successful output
+was unchanged, while invalid-lifecycle output fell from 873 to 228 bytes and remained
+actionable. Run 2 confirms that `mvn-lite` is ready to replace the application's
+existing low-noise Maven helper. Broader failure-corpus testing should continue as
+validation of `mvn-lite`, not as a prerequisite for maintaining two wrappers.
 
 ## Research questions
 
@@ -502,14 +508,66 @@ coordinates. Their aggregate measurements are retained in
 
 ## Run 2 — Updated failure summaries
 
-Run 2 will repeat the same commands with the updated `mvn-lite`. It will preserve
-all Run 1 measurements and add a side-by-side comparison, with emphasis on the
-shortened Maven command error and immediate plugin-cause output.
-
-At execution time, record the date, `mvn-lite` checksum, any environment differences,
-the new measurements, and qualitative diagnostic results. Store supporting files
-under `extras/run-2/`.
+Run 2 repeated the same commands with the updated `mvn-lite`, preserved all Run 1
+measurements, and added a side-by-side comparison. It emphasized the shortened Maven
+command error and immediate plugin-cause output. The run recorded the date,
+`mvn-lite` checksum, environment comparison, new measurements, and qualitative
+diagnostic results; supporting files are stored under `extras/run-2/`.
 
 ### Run 2 results
 
-To be added after the repeat experiment.
+Run 2 was completed on 2026-07-30 with `mvn-lite` SHA-256
+`4f2a542d4e7ef08674482d7162a1e040159d2ab32c47cbcb57151291c201cd60`.
+The operating system, Java, Maven, application checkout, tested module, and warm
+incremental conditions matched Run 1. The `mvn-lite` fixture suite also passed.
+
+The successful build again ran 102 tests with zero failures, errors, or skips and
+reported `BUILD SUCCESS`. All equivalent commands preserved their Run 1 exit
+statuses.
+
+| Scenario | Runner | Status | Bytes | Words | Lines | Estimated tokens |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Successful `common` tests | Vanilla Maven | 0 | 6,753 | 684 | 90 | ~1,689 |
+| Successful `common` tests | Existing helper | 0 | 18 | 3 | 1 | ~5 |
+| Successful `common` tests | Updated `mvn-lite` | 0 | 16 | 4 | 1 | ~4 |
+| Invalid lifecycle phase | Vanilla Maven | 1 | 2,730 | 200 | 35 | ~683 |
+| Invalid lifecycle phase | Existing helper | 1 | 1,393 | 133 | 20 | ~349 |
+| Invalid lifecycle phase | Updated `mvn-lite` | 1 | 228 | 19 | 9 | ~57 |
+
+The success byte counts exactly matched Run 1. The updated invalid-lifecycle
+summary retained the actionable subject:
+
+```text
+Maven: Unknown lifecycle phase "definitely-not-a-maven-phase"
+```
+
+It also retained the full-log pointer and re-run guidance. Compared with Run 1
+`mvn-lite`, invalid-lifecycle output fell by 645 bytes (73.9%) and approximately
+162 estimated tokens. Compared with the existing application helper, it saved
+1,165 bytes (83.6%) and approximately 292 estimated tokens. Compared with vanilla
+Maven, it saved 2,502 bytes (91.6%).
+
+Run 2 attempted to reproduce the prior environmental Surefire temporary-directory
+failure without changing application source. Both bounded temporary-directory
+overrides completed successfully, so they do not provide real-application evidence
+for the new immediate-cause extraction. Fixture coverage does verify the supported
+same-line `Execution ... failed:` and `MojoExecutionException:` forms, including
+byte budgets and raw-log preservation, but that is not a substitute for the planned
+real failure corpus.
+
+### Run 2 adoption decision
+
+Run 2 confirms that `mvn-lite` is ready to replace the application's existing
+low-noise Maven helper. The tested build command remains compatible, failure output
+is materially smaller, and full diagnostics remain available in retained logs.
+Broader failure-corpus testing should continue as validation of `mvn-lite`, not as
+a prerequisite for maintaining two wrappers.
+
+The replacement should explicitly document two output-policy differences:
+`mvn-lite` does not consume the application's `BUILD_LABEL`, and it changes the
+default successful-log location and retention policy. These are migration choices,
+not blockers to replacement.
+
+Supporting aggregate evidence and captured successful compact outputs are under
+`extras/run-2/`. Raw Maven outputs remain in temporary storage and are not published
+because they contain application-identifying paths and source details.

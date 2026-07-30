@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
+
+# mvn-lite 0.1.0
+# https://github.com/PVRLabs/agent-scripts
+
 set -uo pipefail
+
+readonly MVN_LITE_VERSION="0.1.0"
 
 project_dir="$PWD"
 log_dir="${MVN_LITE_LOG_DIR:-$project_dir/.agent-logs/maven}"
@@ -13,8 +19,23 @@ fail() {
 	exit 2
 }
 
+print_mvn_lite_help() {
+	printf 'mvn-lite %s\n\n' "$MVN_LITE_VERSION"
+	printf 'Usage:\n'
+	printf '  mvn-lite [wrapper options] [Maven arguments]\n\n'
+	printf 'Wrapper options:\n'
+	printf '  --full, --raw       Stream complete Maven output\n'
+	printf '  --keep-log          Retain the log after a successful build\n'
+	printf '  --help-mvn-lite     Show this help\n\n'
+	printf 'Maven options such as --help and --version are passed through to Maven.\n'
+}
+
 while (($# > 0)); do
 	case "$1" in
+		--help-mvn-lite)
+			print_mvn_lite_help
+			exit 0
+			;;
 		--full|--raw)
 			full=true
 			shift

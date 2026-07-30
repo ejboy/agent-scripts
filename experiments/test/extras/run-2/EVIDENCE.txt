@@ -1,0 +1,48 @@
+PVR Labs Financial Engine App compatibility evidence — Run 2
+
+Date: 2026-07-30
+mvn-lite SHA-256: 4f2a542d4e7ef08674482d7162a1e040159d2ab32c47cbcb57151291c201cd60
+
+Successful common tests:
+Vanilla Maven:       status 0, 6,753 bytes, 684 words, 90 lines
+Existing helper:     status 0,    18 bytes,   3 words,  1 line
+Updated mvn-lite:    status 0,    16 bytes,   4 words,  1 line
+
+Maven result:
+Tests run: 102, Failures: 0, Errors: 0, Skipped: 0
+BUILD SUCCESS
+
+Invalid lifecycle phase:
+Vanilla Maven:       status 1, 2,730 bytes, 200 words, 35 lines
+Existing helper:     status 1, 1,393 bytes, 133 words, 20 lines
+Updated mvn-lite:    status 1,   228 bytes,  19 words,  9 lines
+
+Updated mvn-lite diagnostic:
+Maven: Unknown lifecycle phase "definitely-not-a-maven-phase"
+Full raw log retained and identified in compact output.
+
+Change from Run 1 mvn-lite:
+Invalid-lifecycle output: 873 to 228 bytes, saving 645 bytes (73.9%)
+Approximate tokens: 219 to 57, saving ~162 tokens
+
+Updated mvn-lite reduction relative to existing helper:
+Invalid-lifecycle output: 1,165 bytes (83.6%)
+Approximate tokens: 349 to 57, saving ~292 tokens
+
+Updated mvn-lite reduction relative to vanilla Maven:
+Successful output: 6,737 bytes (99.8%)
+Invalid-lifecycle output: 2,502 bytes (91.6%)
+Approximate invalid-lifecycle tokens: 683 to 57, saving ~626 tokens
+
+Immediate plugin cause:
+A real Surefire temporary-directory failure was not reproduced. Two bounded
+temporary-directory overrides completed the 102 tests successfully. The new cause
+extraction passed the repository fixture suite but remains unverified against this
+application.
+
+Adoption decision:
+Ready to replace the application's existing low-noise Maven helper. The tested
+command remains compatible, failure output is materially smaller, and full
+diagnostics remain available in retained logs. Continue broader failure-corpus
+testing as validation of mvn-lite rather than as a prerequisite for maintaining
+two wrappers. Document the label and log-policy differences during migration.

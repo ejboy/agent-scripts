@@ -72,6 +72,25 @@ FAKE_NAME=wrapper exec "$FAKE_MVN" "$@"
 EOF
 chmod +x "$project/mvnw"
 
+version_comment="$(sed -n 's/^# mvn-lite //p' "$runner" | head -n 1)"
+version_constant="$(sed -n 's/^readonly MVN_LITE_VERSION="\([^"]*\)"$/\1/p' "$runner")"
+[[ -n "$version_comment" && "$version_comment" == "$version_constant" ]] ||
+	fail_test "provenance comment and version constant differ"
+
+rm -f "$FAKE_INVOKED_FILE"
+output="$(run_from_project --help-mvn-lite)"
+[[ "$output" == "mvn-lite $version_constant"$'\n\n'* ]] ||
+	fail_test "wrapper help version heading missing"
+[[ "$output" == *'Usage:'* ]] || fail_test "wrapper help usage missing"
+[[ "$output" == *'mvn-lite [wrapper options] [Maven arguments]'* ]] ||
+	fail_test "wrapper help invocation missing"
+[[ "$output" == *'--full, --raw'* ]] || fail_test "wrapper full-output help missing"
+[[ "$output" == *'--keep-log'* ]] || fail_test "wrapper keep-log help missing"
+[[ "$output" == *'--help-mvn-lite'* ]] || fail_test "wrapper help option missing"
+[[ "$output" == *'--help and --version are passed through to Maven.'* ]] ||
+	fail_test "Maven passthrough help missing"
+[[ ! -e "$FAKE_INVOKED_FILE" ]] || fail_test "wrapper help invoked Maven"
+
 output="$(run_from_project test)"
 assert_file_contains "$FAKE_INVOKED_FILE" "wrapper"
 assert_args -B -ntp -Dstyle.color=never test
