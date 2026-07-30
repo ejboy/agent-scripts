@@ -1,0 +1,256 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+project_dir="$PWD"
+log_dir="${MVN_LITE_LOG_DIR:-$project_dir/.agent-logs/maven}"
+log_file="$log_dir/maven-$(date '+%Y%m%d-%H%M%S')-$$.log"
+full=false
+keep_log=false
+child_pid=""
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 2
+}
+
+while (($# > 0)); do
+	case "$1" in
+		--full|--raw)
+			full=true
+			shift
+			;;
+		--keep-log)
+			keep_log=true
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+if [[ -x "$project_dir/mvnw" ]]; then
+	maven_command=("$project_dir/mvnw")
+elif command -v mvn >/dev/null 2>&1; then
+	maven_command=(mvn)
+else
+	fail "neither an executable ./mvnw nor mvn on PATH was found"
+fi
+
+maven_args=("$@")
+command=("${maven_command[@]}")
+passthrough="$full"
+if ((${#maven_args[@]} > 0)); then
+	for arg in "${maven_args[@]}"; do
+		case "$arg" in
+			-h|--help|-v|--version|-V|--show-version)
+				passthrough=true
+				;;
+		esac
+	done
+fi
+
+if [[ "$passthrough" != true ]]; then
+	has_batch=false
+	has_no_transfer_progress=false
+	has_color=false
+	if ((${#maven_args[@]} > 0)); then
+		for arg in "${maven_args[@]}"; do
+			case "$arg" in
+				-B|--batch-mode)
+					has_batch=true
+					;;
+				-ntp|--no-transfer-progress)
+					has_no_transfer_progress=true
+					;;
+				-Dstyle.color=never|-Dstyle.color=always|-Dstyle.color=auto)
+					has_color=true
+					;;
+			esac
+		done
+	fi
+	[[ "$has_batch" == true ]] || command+=(-B)
+	[[ "$has_no_transfer_progress" == true ]] || command+=(-ntp)
+	[[ "$has_color" == true ]] || command+=(-Dstyle.color=never)
+fi
+if ((${#maven_args[@]} > 0)); then
+	command+=("${maven_args[@]}")
+fi
+
+extract_total_time() {
+	awk '
+		/^\[INFO\] Total time:/ {
+			line = $0
+			sub(/^\[INFO\] Total time:[[:space:]]*/, "", line)
+			value = line
+		}
+		END {
+			if (value != "") {
+				print value
+			}
+		}
+	' "$log_file"
+}
+
+extract_failure_summary() {
+	awk -v project_root="$project_dir/" '
+		function clean(line) {
+			sub(/^\[ERROR\][[:space:]]*/, "", line)
+			return line
+		}
+		function add(label, value, key) {
+			if (value == "") {
+				return
+			}
+			if (count >= 24) {
+				return
+			}
+			if (label == "Dependency" && dependency_count >= 6) {
+				return
+			}
+			key = label SUBSEP value
+			if (!seen[key]++) {
+				count++
+				labels[count] = label
+				values[count] = value
+				if (label == "Dependency") {
+					dependency_count++
+				}
+			}
+		}
+		function shorten(path) {
+			if (index(path, project_root) == 1) {
+				return substr(path, length(project_root) + 1)
+			}
+			return path
+		}
+		/^\[ERROR\] .*\.java:\[[0-9]+,[0-9]+\]/ {
+			line = clean($0)
+			match(line, /:\[[0-9]+,[0-9]+\]/)
+			path = substr(line, 1, RSTART - 1)
+			position = substr(line, RSTART + 2, RLENGTH - 3)
+			gsub(/,/, ":", position)
+			message = substr(line, RSTART + RLENGTH)
+			sub(/^[[:space:]]+/, "", message)
+			add("Compiler", shorten(path) ":" position " — " message)
+			next
+		}
+		/^\[ERROR\][[:space:]]+(symbol|location):/ {
+			add("Compiler detail", clean($0))
+			next
+		}
+		/^\[ERROR\] .* -- Time elapsed: .* <<< (FAILURE|ERROR)!/ {
+			line = clean($0)
+			sub(/[[:space:]]+-- Time elapsed:.*/, "", line)
+			add("Test", line)
+			test_failure = 1
+			expect_exception = 1
+			next
+		}
+		expect_exception {
+			line = clean($0)
+			if (line ~ /^[[:alnum:]_.$]+(Exception|Error|AssertionFailedError)(:|$)/) {
+				add("Exception", line)
+				expect_exception = 0
+				next
+			}
+			if (line !~ /^[[:space:]]*(at |Caused by:|Suppressed:|$)/) {
+				expect_exception = 0
+			}
+		}
+		/^\[ERROR\].*(Could not resolve dependencies for project|Could not find artifact|Failed to collect dependencies|Non-resolvable import POM|Could not transfer artifact)/ {
+			add("Dependency", clean($0))
+			next
+		}
+		/^\[ERROR\] Failed to execute goal / {
+			line = clean($0)
+			sub(/^Failed to execute goal[[:space:]]+/, "", line)
+			sub(/[[:space:]]+on project .*/, "", line)
+			add("Goal", line)
+			next
+		}
+		/^\[ERROR\] (Unknown lifecycle phase|No plugin found for prefix|Non-resolvable parent POM|The goal you specified requires a project|Some problems were encountered while processing the POMs)/ {
+			add("Maven", clean($0))
+			next
+		}
+		END {
+			for (i = 1; i <= count && i <= 24; i++) {
+				printf "  %s: %s\n", labels[i], values[i]
+			}
+			if (test_failure) {
+				print "__MVN_LITE_TEST_FAILURE__"
+			}
+		}
+	' "$log_file"
+}
+
+forward_signal() {
+	local signal="$1"
+	local status="$2"
+
+	if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
+		kill "-$signal" "$child_pid" 2>/dev/null || true
+		wait "$child_pid" 2>/dev/null || true
+	fi
+	exit "$status"
+}
+
+if [[ "$passthrough" == true ]]; then
+	exec "${command[@]}"
+fi
+
+mkdir -p "$log_dir" || fail "could not create log directory: $log_dir"
+
+trap 'forward_signal INT 130' INT
+trap 'forward_signal TERM 143' TERM
+
+"${command[@]}" >"$log_file" 2>&1 &
+child_pid=$!
+wait "$child_pid"
+status=$?
+child_pid=""
+trap - INT TERM
+
+if ((status == 0)); then
+	printf 'PASS'
+	total_time="$(extract_total_time)" || total_time=""
+	if [[ -n "$total_time" ]]; then
+		printf ' · %s' "$total_time"
+	fi
+	printf '\n'
+
+	if [[ "$keep_log" == true ]]; then
+		printf 'Full Maven log: %s\n' "$log_file"
+	else
+		rm -f -- "$log_file"
+	fi
+	exit 0
+fi
+
+printf 'FAIL\n\n'
+summary="$(extract_failure_summary)" || summary=""
+test_failure=false
+if [[ "$summary" == *$'\n__MVN_LITE_TEST_FAILURE__' || "$summary" == "__MVN_LITE_TEST_FAILURE__" ]]; then
+	test_failure=true
+	summary="${summary//$'\n__MVN_LITE_TEST_FAILURE__'/}"
+	summary="${summary/__MVN_LITE_TEST_FAILURE__/}"
+fi
+if [[ -n "$summary" ]]; then
+	printf 'Failure summary:\n%s\n' "$summary"
+else
+	printf 'Maven log tail:\n'
+	tail -n 80 "$log_file"
+fi
+
+printf '\nFull Maven log:\n  %s\n' "$log_file"
+if [[ "$test_failure" == true ]]; then
+	printf '\nTest reports may be available under:\n'
+	printf '  */target/surefire-reports/\n'
+	printf '  */target/failsafe-reports/\n'
+fi
+printf '\nRe-run with --full for complete live output.\n'
+exit "$status"

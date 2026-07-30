@@ -1,0 +1,72 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+printf '%s\n' "$@" >"$FAKE_ARGS_FILE"
+printf '%s\n' "${FAKE_NAME:-mvn}" >"$FAKE_INVOKED_FILE"
+
+case "${FAKE_MODE:-success}" in
+	success)
+		printf '%s\n' '[INFO] BUILD SUCCESS'
+		printf '%s\n' '[INFO] Total time: 1.234 s'
+		exit 0
+		;;
+	compiler)
+		printf '%s\n' "[ERROR] $FAKE_PROJECT_DIR/src/main/java/App.java:[4,9] cannot find symbol"
+		printf '%s\n' '[ERROR]   symbol:   variable missing'
+		printf '%s\n' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:compile on project app'
+		exit 17
+		;;
+	surefire-failure)
+		printf '%s\n' '[ERROR] com.example.AppTest.shouldRejectInvalidInput -- Time elapsed: 0.01 s <<< FAILURE!'
+		printf '%s\n' '[ERROR] java.lang.AssertionError: expected 400'
+		exit 1
+		;;
+	failsafe-failure)
+		printf '%s\n' '[ERROR] com.example.AppIT.shouldStartService -- Time elapsed: 0.04 s <<< ERROR!'
+		printf '%s\n' '[ERROR] java.lang.IllegalStateException: service unavailable'
+		exit 1
+		;;
+	dependency-resolution)
+		printf '%s\n' '[ERROR] Failed to execute goal on project app: Could not resolve dependencies for project com.example:app:jar:1.0'
+		printf '%s\n' '[ERROR] dependency: com.example:missing-lib:jar:2.0'
+		printf '%s\n' '[ERROR] Could not find artifact com.example:missing-lib:jar:2.0 in central'
+		exit 1
+		;;
+	goal)
+		printf '%s\n' '[ERROR] Failed to execute goal org.apache.maven.plugins:maven-enforcer-plugin:enforce on project app'
+		exit 9
+		;;
+	maven-command-error)
+		printf '%s\n' '[ERROR] Unknown lifecycle phase "teest". You must specify a valid lifecycle phase or a goal'
+		exit 2
+		;;
+	unknown)
+		for line_number in {1..100}; do
+			printf 'unrecognized failure line %s\n' "$line_number"
+		done
+		exit 7
+		;;
+	version)
+		printf '%s\n' 'Apache Maven 3.9.9'
+		printf '%s\n' 'Maven home: /opt/maven'
+		printf '%s\n' 'Java version: 17'
+		exit 0
+		;;
+	help)
+		printf '%s\n' 'usage: mvn [options] [<goal(s)>] [<phase(s)>]'
+		exit 0
+		;;
+	wait-for-signal)
+		sleep 30 &
+		wait_pid=$!
+		printf '%s\n' "$$" >"$FAKE_SIGNAL_PID_FILE"
+		terminate_for_test() {
+			kill -TERM "$wait_pid" 2>/dev/null || true
+			wait "$wait_pid" 2>/dev/null || true
+			printf '%s\n' terminated >"$FAKE_SIGNAL_EXIT_FILE"
+			exit 143
+		}
+		trap terminate_for_test TERM
+		wait "$wait_pid"
+		;;
+esac

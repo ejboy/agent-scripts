@@ -1,0 +1,368 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+readonly chrome_app="${LAUNCH_BROWSER_CHROME_APP:-/Applications/Google Chrome.app}"
+readonly chrome_bin="$chrome_app/Contents/MacOS/Google Chrome"
+readonly cdp_host="127.0.0.1"
+readonly cdp_port="9222"
+readonly cdp_url="http://$cdp_host:$cdp_port"
+readonly readiness_attempts=50
+readonly readiness_delay_seconds="0.1"
+readonly persistent_profile_dir="$HOME/.browser-testing-profile"
+readonly state_file="$persistent_profile_dir/launch-state"
+
+mode="headless"
+target_url=""
+profile_dir=""
+isolated=false
+foreground=false
+stop=false
+launch_requested=false
+profile_label="persistent"
+lifecycle_label="detached"
+temporary_profile=false
+chrome_pid=""
+chrome_log=""
+keep_chrome_log=false
+launch_label=""
+detached_job_owned=false
+readonly detached_runner='chrome_log="$1"
+state_file="$2"
+expected_service="$3"
+shift 3
+"$@"
+status=$?
+if ((status == 0)); then
+	rm -f -- "$chrome_log"
+fi
+state_service=""
+if [[ -f "$state_file" ]]; then
+	while IFS="=" read -r key value; do
+		[[ "$key" == "service" ]] && state_service="$value"
+	done <"$state_file"
+fi
+if [[ "$state_service" == "$expected_service" ]]; then
+	rm -f -- "$state_file"
+fi
+exit "$status"'
+
+usage() {
+	printf '%s\n' \
+		"Usage: ./scripts/launch-browser [--headless|--visible] [--foreground] [--isolated] [URL]" \
+		"       ./scripts/launch-browser --stop" \
+		"" \
+		"Starts Google Chrome with DevTools on $cdp_url." \
+		"Headless detached mode is the default. Use --foreground --isolated for a temporary profile." \
+		"Use --stop to stop the detached browser previously started by this script."
+}
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 1
+}
+
+remove_owned_state() {
+	local expected_service="$1"
+	local key
+	local value
+	local state_service=""
+
+	[[ -f "$state_file" ]] || return 0
+	while IFS="=" read -r key value; do
+		[[ "$key" == "service" ]] && state_service="$value"
+	done <"$state_file"
+	if [[ "$state_service" == "$expected_service" ]]; then
+		rm -f -- "$state_file"
+	fi
+}
+
+cleanup() {
+	if [[ "$detached_job_owned" == true && -n "$launch_label" ]]; then
+		launchctl remove "$launch_label" 2>/dev/null || true
+		remove_owned_state "$launch_label"
+	fi
+	if [[ -n "$chrome_pid" ]] && kill -0 "$chrome_pid" 2>/dev/null; then
+		kill "$chrome_pid" 2>/dev/null || true
+		wait "$chrome_pid" 2>/dev/null || true
+	fi
+	if [[ "$temporary_profile" == true && -n "$profile_dir" && -d "$profile_dir" ]]; then
+		rm -rf -- "$profile_dir"
+	fi
+	if [[ "$keep_chrome_log" != true && -n "$chrome_log" && -f "$chrome_log" ]]; then
+		rm -f -- "$chrome_log"
+	fi
+}
+
+write_launch_state() {
+	local state_tmp
+
+	state_tmp="$(mktemp "$persistent_profile_dir/.launch-state.XXXXXX")" || return 1
+	if ! {
+		printf 'service=%s\n' "$launch_label"
+		printf 'pid=%s\n' "$chrome_pid"
+	} >"$state_tmp"; then
+		rm -f -- "$state_tmp"
+		return 1
+	fi
+	if ! mv -f -- "$state_tmp" "$state_file"; then
+		rm -f -- "$state_tmp"
+		return 1
+	fi
+}
+
+stop_detached_browser() {
+	local key
+	local listener_pid
+	local pid_running
+	local cdp_running
+	local value
+	local service=""
+	local pid=""
+
+	[[ "$(uname -s)" == "Darwin" ]] || fail "this launcher supports macOS only"
+	command -v launchctl >/dev/null 2>&1 || fail "launchctl is required to stop detached Chrome"
+	command -v curl >/dev/null 2>&1 || fail "curl is required to verify Chrome stopped"
+	command -v lsof >/dev/null 2>&1 || fail "lsof is required to verify Chrome stopped"
+	[[ -f "$state_file" ]] || fail "no detached browser state was found at $state_file"
+
+	while IFS="=" read -r key value; do
+		case "$key" in
+			service) service="$value" ;;
+			pid) pid="$value" ;;
+		esac
+	done <"$state_file"
+
+	case "$service" in
+		xyz.pvrlabs.browser.*) ;;
+		*) fail "invalid browser service in $state_file" ;;
+	esac
+	if [[ -z "$pid" || "$pid" == *[!0-9]* ]]; then
+		fail "invalid browser PID in $state_file"
+	fi
+	if ! launchctl remove "$service"; then
+		fail "could not stop browser service $service; state was retained"
+	fi
+
+	listener_pid="$(lsof -nP -t -iTCP:"$cdp_port" -sTCP:LISTEN 2>/dev/null || true)"
+	listener_pid="${listener_pid%%$'\n'*}"
+	if [[ "$listener_pid" == "$pid" ]] &&
+		curl --silent --fail --max-time 1 "$cdp_url/json/version" >/dev/null 2>&1; then
+		kill -TERM "$pid" 2>/dev/null || true
+	fi
+
+	pid_running=true
+	cdp_running=true
+	for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
+		pid_running=false
+		cdp_running=false
+		kill -0 "$pid" 2>/dev/null && pid_running=true
+		curl --silent --fail --max-time 1 "$cdp_url/json/version" >/dev/null 2>&1 &&
+			cdp_running=true
+		if [[ "$pid_running" != true && "$cdp_running" != true ]]; then
+			break
+		fi
+		sleep "$readiness_delay_seconds"
+	done
+	if [[ "$pid_running" == true || "$cdp_running" == true ]]; then
+		fail "browser did not stop cleanly; state was retained at $state_file"
+	fi
+	rm -f -- "$state_file"
+
+	printf 'Browser stopped\n'
+	printf 'PID: %s\n' "$pid"
+	printf 'Service: %s\n' "$service"
+}
+
+print_chrome_log() {
+	if [[ -s "$chrome_log" ]]; then
+		printf 'Last Chrome output:\n' >&2
+		tail -n 30 "$chrome_log" >&2
+		printf 'Full Chrome log: %s\n' "$chrome_log" >&2
+	else
+		printf 'Chrome produced no diagnostic output.\n' >&2
+	fi
+}
+
+while (($# > 0)); do
+	case "$1" in
+		--headless)
+			mode="headless"
+			launch_requested=true
+			;;
+		--visible)
+			mode="visible"
+			launch_requested=true
+			;;
+		--isolated)
+			isolated=true
+			launch_requested=true
+			;;
+		--foreground)
+			foreground=true
+			launch_requested=true
+			;;
+		--stop)
+			stop=true
+			;;
+		--help|-h)
+			usage
+			exit 0
+			;;
+		--*)
+			fail "unknown option: $1"
+			;;
+		*)
+			if [[ -n "$target_url" ]]; then
+				fail "only one URL may be provided"
+			fi
+			target_url="$1"
+			launch_requested=true
+			;;
+	esac
+	shift
+done
+
+if [[ "$stop" == true ]]; then
+	[[ "$launch_requested" != true ]] || fail "--stop cannot be combined with launch options or a URL"
+	stop_detached_browser
+	exit 0
+fi
+
+if [[ "$isolated" == true && "$foreground" != true ]]; then
+	fail "--isolated requires --foreground so Chrome and its temporary files have a cleanup owner"
+fi
+if [[ "$foreground" == true ]]; then
+	lifecycle_label="foreground"
+fi
+
+[[ "$(uname -s)" == "Darwin" ]] || fail "this launcher supports macOS only"
+[[ -d "$chrome_app" && -x "$chrome_bin" ]] || fail "Google Chrome was not found at $chrome_app"
+command -v curl >/dev/null 2>&1 || fail "curl is required to check Chrome DevTools readiness"
+
+if [[ "$foreground" != true ]]; then
+	command -v launchctl >/dev/null 2>&1 || fail "launchctl is required for detached Chrome startup"
+	command -v lsof >/dev/null 2>&1 || fail "lsof is required to identify detached Chrome"
+fi
+
+if curl --silent --fail --max-time 1 "$cdp_url/json/version" >/dev/null 2>&1; then
+	fail "Chrome DevTools is already running on $cdp_url"
+fi
+if command -v lsof >/dev/null 2>&1 &&
+	lsof -nP -iTCP:"$cdp_port" -sTCP:LISTEN >/dev/null 2>&1; then
+	fail "port $cdp_port is already in use by another process"
+fi
+
+chrome_args=(
+	"--remote-debugging-address=$cdp_host"
+	"--remote-debugging-port=$cdp_port"
+	"--no-first-run"
+	"--no-default-browser-check"
+)
+
+if [[ "$isolated" == true ]]; then
+	profile_dir="$(mktemp -d "${TMPDIR:-/tmp}/pvrlabs-browser.XXXXXX")" ||
+		fail "could not create a temporary Chrome profile"
+	profile_label="isolated"
+	temporary_profile=true
+else
+	profile_dir="$persistent_profile_dir"
+	mkdir -p -- "$profile_dir" || fail "could not create Chrome profile at $profile_dir"
+fi
+
+if [[ "$mode" == "headless" ]]; then
+	chrome_args+=("--headless=new" "--disable-gpu")
+fi
+chrome_args+=("--user-data-dir=$profile_dir")
+if [[ -n "$target_url" ]]; then
+	chrome_args+=("$target_url")
+fi
+
+chrome_log="$(mktemp "${TMPDIR:-/tmp}/pvrlabs-browser.log.XXXXXX")" ||
+	fail "could not create a temporary Chrome log"
+chrome_args+=("--enable-logging" "--log-file=$chrome_log")
+
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+if [[ "$foreground" == true ]]; then
+	"$chrome_bin" "${chrome_args[@]}" >>"$chrome_log" 2>&1 &
+	chrome_pid=$!
+else
+	launch_label="xyz.pvrlabs.browser.$$.${RANDOM}"
+	detached_job_owned=true
+	if ! write_launch_state; then
+		printf 'Error: could not write browser state to %s\n' "$state_file" >&2
+		exit 1
+	fi
+	if ! launchctl submit -l "$launch_label" -o "$chrome_log" -e "$chrome_log" \
+		-- /bin/bash -c "$detached_runner" "$launch_label" \
+		"$chrome_log" "$state_file" "$launch_label" \
+		"$chrome_bin" "${chrome_args[@]}" >>"$chrome_log" 2>&1; then
+		keep_chrome_log=true
+		printf 'Error: launchctl failed to start Google Chrome\n' >&2
+		print_chrome_log
+		exit 1
+	fi
+fi
+
+for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
+	if [[ "$foreground" == true ]] && ! kill -0 "$chrome_pid" 2>/dev/null; then
+		wait "$chrome_pid" 2>/dev/null
+		chrome_exit_status=$?
+		keep_chrome_log=true
+		printf 'Error: Chrome exited before DevTools became ready (status %s)\n' "$chrome_exit_status" >&2
+		print_chrome_log
+		exit 1
+	fi
+
+	if curl --silent --fail --max-time 1 "$cdp_url/json/version" >/dev/null 2>&1; then
+		if [[ "$foreground" != true ]]; then
+			chrome_pid="$(lsof -nP -t -iTCP:"$cdp_port" -sTCP:LISTEN 2>/dev/null || true)"
+			chrome_pid="${chrome_pid%%$'\n'*}"
+			if [[ -z "$chrome_pid" || "$chrome_pid" == *[!0-9]* ]]; then
+				printf 'Error: could not identify the Chrome process listening on port %s\n' "$cdp_port" >&2
+				exit 1
+			fi
+			if ! write_launch_state; then
+				printf 'Error: could not write browser state to %s\n' "$state_file" >&2
+				exit 1
+			fi
+		fi
+
+		printf 'Browser ready\n'
+		printf 'Mode: %s\n' "$mode"
+		printf 'Profile: %s\n' "$profile_label"
+		printf 'Lifecycle: %s\n' "$lifecycle_label"
+		printf 'CDP: %s\n' "$cdp_url"
+		if [[ -n "$target_url" ]]; then
+			printf 'Page: %s\n' "$target_url"
+		fi
+		printf 'PID: %s\n' "$chrome_pid"
+
+		if [[ "$foreground" != true ]]; then
+			printf 'Service: %s\n' "$launch_label"
+			printf 'Log: %s\n' "$chrome_log"
+			detached_job_owned=false
+			trap - EXIT INT TERM
+			exit 0
+		fi
+
+		printf 'Press Ctrl-C to stop Chrome.\n'
+		wait "$chrome_pid"
+		chrome_exit_status=$?
+		chrome_pid=""
+		if ((chrome_exit_status != 0)); then
+			keep_chrome_log=true
+			printf 'Error: Chrome exited unexpectedly (status %s)\n' "$chrome_exit_status" >&2
+			print_chrome_log
+		fi
+		exit "$chrome_exit_status"
+	fi
+	sleep "$readiness_delay_seconds"
+done
+
+keep_chrome_log=true
+printf 'Error: Chrome DevTools did not become ready at %s within 5 seconds; a sandboxed process may need permission to launch Chrome\n' "$cdp_url" >&2
+print_chrome_log
+exit 1
