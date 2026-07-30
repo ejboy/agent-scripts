@@ -79,7 +79,7 @@ version_constant="$(sed -n 's/^readonly MVN_LITE_VERSION="\([^"]*\)"$/\1/p' "$ru
 
 rm -f "$FAKE_INVOKED_FILE"
 output="$(run_from_project --help-mvn-lite)"
-[[ "$output" == "mvn-lite $version_constant"$'\n\n'* ]] ||
+[[ "$output" == "mvn-lite $version_constant"$'\nIntroverted Maven for coding agents\n\n'* ]] ||
 	fail_test "wrapper help version heading missing"
 [[ "$output" == *'Usage:'* ]] || fail_test "wrapper help usage missing"
 [[ "$output" == *'mvn-lite [wrapper options] [Maven arguments]'* ]] ||

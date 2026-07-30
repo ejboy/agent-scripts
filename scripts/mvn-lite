@@ -20,7 +20,8 @@ fail() {
 }
 
 print_mvn_lite_help() {
-	printf 'mvn-lite %s\n\n' "$MVN_LITE_VERSION"
+	printf 'mvn-lite %s\n' "$MVN_LITE_VERSION"
+	printf 'Introverted Maven for coding agents\n\n'
 	printf 'Usage:\n'
 	printf '  mvn-lite [wrapper options] [Maven arguments]\n\n'
 	printf 'Wrapper options:\n'

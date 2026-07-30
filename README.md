@@ -4,6 +4,8 @@ Maven build logs often consume far more coding-agent context than the actual fai
 
 ## mvn-lite
 
+*Introverted Maven for coding agents.*
+
 `mvn-lite` is optimized for build, test, package, install, and verification commands. Use `--full` for reporting goals or whenever ordinary Maven output is needed.
 
 It stays close to Maven:
