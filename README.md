@@ -1,5 +1,7 @@
 # agent-scripts
 
+[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.1.0)
+
 Maven build logs often consume far more coding-agent context than the actual failure. `mvn-lite` keeps normal Maven command syntax and exit behavior while providing compact output for common build and verification workflows.
 
 Public, standalone utilities live under `scripts/`. Repository release tooling lives
@@ -50,16 +52,19 @@ A standard plugin failure with a clear same-line cause can include:
 
 ## Installation
 
-Repository-local installation keeps the wrapper reviewed and versioned with the application:
+Install `mvn-lite` into the project's `scripts/` directory from a tagged release:
 
 ```bash
 mkdir -p scripts
-cp /path/to/agent-scripts/scripts/mvn-lite ./scripts/mvn-lite
-chmod +x ./scripts/mvn-lite
-printf '\n.agent-logs/\n' >> .gitignore
+curl -fsSL \
+  https://raw.githubusercontent.com/ejboy/agent-scripts/v0.1.0/scripts/mvn-lite \
+  -o scripts/mvn-lite
+chmod +x scripts/mvn-lite
 
 ./scripts/mvn-lite test
 ```
+
+Add `.agent-logs/` to the project's `.gitignore`.
 
 For optional global installation or symlinking:
 

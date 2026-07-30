@@ -33,4 +33,11 @@ assert_script_version() {
 assert_script_version "$root/scripts/mvn-lite" mvn-lite AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/launch-browser" launch-browser AGENT_SCRIPTS_VERSION
 
+grep -Fq "badge/version-$expected_version-blue" "$root/README.md" ||
+	fail_test "README version badge does not match VERSION"
+grep -Fq "/tree/v$expected_version)" "$root/README.md" ||
+	fail_test "README version badge link does not match VERSION"
+grep -Fq "/agent-scripts/v$expected_version/scripts/mvn-lite" "$root/README.md" ||
+	fail_test "README installation URL does not match VERSION"
+
 printf 'version tests passed (%s)\n' "$expected_version"
