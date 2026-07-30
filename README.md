@@ -13,6 +13,11 @@ separately under `maintainers/` and is not part of the public utility interface.
 
 `mvn-lite` is optimized for build, test, package, install, and verification commands. Use `--full` for reporting goals or whenever ordinary Maven output is needed.
 
+Real-project results:
+
+- [Finrecord compatibility experiment](experiments/test/PVR-LABS-FINANCIAL-ENGINE-APP.md): successful output fell from 6,753 to 16 bytes—more than 99.7%.
+- [Scriptella ETL smoke test](experiments/test/SCRIPTELLA-MVN-LITE-SMOKE-TEST.md): a successful JDK 17 reactor test fell from hundreds of lines to one.
+
 It stays close to Maven:
 
 - It operates in the caller's current working directory, regardless of where the script is installed.
