@@ -17,12 +17,13 @@ case "${FAKE_MODE:-success}" in
 		exit 17
 		;;
 	surefire-failure)
+		printf '%s\n' '[ERROR] Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.01 s <<< FAILURE! -- in com.example.AppTest'
 		printf '%s\n' '[ERROR] com.example.AppTest.shouldRejectInvalidInput -- Time elapsed: 0.01 s <<< FAILURE!'
 		printf '%s\n' '[ERROR] java.lang.AssertionError: expected 400'
 		exit 1
 		;;
 	failsafe-failure)
-		printf '%s\n' '[ERROR] com.example.AppIT.shouldStartService -- Time elapsed: 0.04 s <<< ERROR!'
+		printf '%s\n' '[ERROR] shouldStartService(com.example.AppIT)  Time elapsed: 0.04 s  <<< ERROR!'
 		printf '%s\n' '[ERROR] java.lang.IllegalStateException: service unavailable'
 		exit 1
 		;;
@@ -44,6 +45,10 @@ case "${FAKE_MODE:-success}" in
 	goal-mojo-cause)
 		printf '%s\n' '[ERROR] Failed to execute goal org.example:example-plugin:1.0:run (default) on project app: org.apache.maven.plugin.MojoExecutionException: Generated output directory is not writable -> [Help 1]'
 		exit 12
+		;;
+	goal-raw-cause)
+		printf '%s\n' '[ERROR] Failed to execute goal org.example:example-plugin:1.0:run (default) on project app: Generated output directory is not writable -> [Help 1]'
+		exit 13
 		;;
 	maven-command-error)
 		printf '%s\n' '[ERROR] Unknown lifecycle phase "teest". You must specify a valid lifecycle phase or a goal in the format <plugin-prefix>:<goal>. Available lifecycle phases are: pre-clean, clean, post-clean, validate, compile, test, package, verify, install, deploy. -> [Help 1]'

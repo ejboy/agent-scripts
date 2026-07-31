@@ -47,6 +47,10 @@ assert_output_occurrences() {
 		fail_test "expected $expected occurrences of '$text', got $actual"
 }
 
+file_mode() {
+	stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
 assert_args() {
 	local expected_file="$test_root/expected-args"
 	printf '%s\n' "$@" >"$expected_file"
@@ -61,7 +65,7 @@ run_from_project() {
 }
 
 failure_log_from_output() {
-	sed -n 's/^  //p' <<<"$1" | grep '/maven-.*\.log$' | tail -n 1
+	sed -n 's/^  //p' <<<"$1" | grep '/maven-.*\.log\.' | tail -n 1
 }
 
 export FAKE_MODE=success
@@ -96,7 +100,7 @@ assert_file_contains "$FAKE_INVOKED_FILE" "wrapper"
 assert_args -B -ntp -Dstyle.color=never test
 [[ "$output" == "PASS · 1.234 s" ]] || fail_test "unexpected compact success output: $output"
 [[ "$(printf '%s\n' "$output" | wc -l)" -eq 1 ]] || fail_test "compact success output was not one line"
-if find "$project/.agent-logs" -type f -name '*.log' -print -quit | grep -q .; then
+if find "$project/.agent-logs" -type f -name 'maven-*.log.*' -print -quit | grep -q .; then
 	fail_test "successful compact log was not removed"
 fi
 
@@ -109,16 +113,48 @@ output="$(run_from_project '-Dname=value with spaces' clean verify)"
 assert_file_contains "$FAKE_INVOKED_FILE" "mvn"
 assert_args -B -ntp -Dstyle.color=never '-Dname=value with spaces' clean verify
 
-output="$(run_from_project --keep-log test)"
+output="$(umask 000; run_from_project --keep-log test)"
 log_file="$(sed -n 's/^Full Maven log: //p' <<<"$output")"
 [[ -f "$log_file" ]] || fail_test "kept log does not exist"
 [[ "$log_file" == "$project/.agent-logs/maven/"* ]] || fail_test "default log is not under caller directory"
+mode="$(file_mode "$log_file")"
+(( (8#$mode & 077) == 0 )) || fail_test "kept log permissions were $mode, expected private permissions"
 rm -f "$log_file"
 
 output="$(MVN_LITE_LOG_DIR="$override_log_dir" run_from_project --keep-log test)"
 log_file="$(sed -n 's/^Full Maven log: //p' <<<"$output")"
 [[ -f "$log_file" && "$log_file" == "$override_log_dir/"* ]] || fail_test "log override was not used"
 rm -f "$log_file"
+
+cat >"$bin_dir/mktemp" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$bin_dir/mktemp"
+rm -f "$FAKE_INVOKED_FILE"
+set +e
+output="$(run_from_project test 2>&1)"
+status=$?
+set -e
+rm -f "$bin_dir/mktemp"
+[[ "$status" -eq 2 ]] || fail_test "log-creation failure status was $status"
+[[ "$output" == *'Error: could not create Maven log in:'* ]] || fail_test "log-creation failure was unclear"
+[[ "$output" != *$'FAIL\n'* ]] || fail_test "log-creation failure was reported as a Maven failure"
+[[ ! -e "$FAKE_INVOKED_FILE" ]] || fail_test "Maven ran after log creation failed"
+
+cat >"$bin_dir/rm" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$bin_dir/rm"
+set +e
+output="$(run_from_project test 2>&1)"
+status=$?
+set -e
+rm -f "$bin_dir/rm"
+[[ "$status" -eq 0 ]] || fail_test "log-removal warning changed the successful status"
+[[ "$output" == *'PASS · 1.234 s'* ]] || fail_test "log-removal warning omitted successful result"
+[[ "$output" == *'Warning: could not remove Maven log:'* ]] || fail_test "log-removal failure was not reported"
 
 output="$(run_from_project -B --batch-mode -ntp --no-transfer-progress -Dstyle.color=auto test)"
 assert_args -B --batch-mode -ntp --no-transfer-progress -Dstyle.color=auto test
@@ -179,6 +215,7 @@ status=$?
 set -e
 [[ "$status" -eq 1 ]] || fail_test "Surefire status was $status"
 [[ "$output" == *'Test: com.example.AppTest.shouldRejectInvalidInput'* ]] || fail_test "Surefire test summary missing"
+[[ "$output" != *'Test: Tests run:'* ]] || fail_test "Surefire suite summary was reported as a test"
 [[ "$output" == *'Exception: java.lang.AssertionError: expected 400'* ]] || fail_test "Surefire exception missing"
 [[ "$output" == *'surefire-reports'* ]] || fail_test "Surefire report hint missing"
 [[ "$output" != *secret* ]] || fail_test "compact failure output exposed command secret"
@@ -194,7 +231,7 @@ output="$(run_from_project verify 2>&1)"
 status=$?
 set -e
 [[ "$status" -eq 1 ]] || fail_test "Failsafe status was $status"
-[[ "$output" == *'Test: com.example.AppIT.shouldStartService'* ]] || fail_test "Failsafe test summary missing"
+[[ "$output" == *'Test: shouldStartService(com.example.AppIT)'* ]] || fail_test "legacy Failsafe test summary missing"
 [[ "$output" == *'Exception: java.lang.IllegalStateException: service unavailable'* ]] || fail_test "Failsafe exception missing"
 [[ "$output" == *'failsafe-reports'* ]] || fail_test "Failsafe report hint missing"
 
@@ -249,6 +286,16 @@ set -e
 [[ "$output" == *'Cause: Generated output directory is not writable'* ]] ||
 	fail_test "MojoExecutionException cause missing"
 [[ "$output" != *'MojoExecutionException'* ]] || fail_test "MojoExecutionException scaffolding remained"
+
+export FAKE_MODE=goal-raw-cause
+set +e
+output="$(run_from_project test 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 13 ]] || fail_test "raw goal cause status was $status"
+[[ "$output" == *'Cause: Generated output directory is not writable'* ]] ||
+	fail_test "raw immediate plugin cause missing"
+[[ "$output" != *'Help 1'* ]] || fail_test "Help reference remained in raw cause output"
 
 export FAKE_MODE=maven-command-error
 set +e

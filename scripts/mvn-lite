@@ -10,7 +10,7 @@ readonly AGENT_SCRIPTS_VERSION="0.1.0"
 
 project_dir="$PWD"
 log_dir="${MVN_LITE_LOG_DIR:-$project_dir/.agent-logs/maven}"
-log_file="$log_dir/maven-$(date '+%Y%m%d-%H%M%S')-$$.log"
+log_file=""
 full=false
 keep_log=false
 child_pid=""
@@ -156,8 +156,6 @@ extract_failure_summary() {
 				if (!sub(/^Failed to execute goal .* on project [^:]+:[[:space:]]*/, "", suffix)) {
 					return ""
 				}
-			} else {
-				return ""
 			}
 			sub(/^([[:alnum:]_.]+\.)?MojoExecutionException:[[:space:]]*/, "", suffix)
 			return drop_help(suffix)
@@ -203,9 +201,9 @@ extract_failure_summary() {
 			add("Compiler detail", clean($0))
 			next
 		}
-		/^\[ERROR\] .* -- Time elapsed: .* <<< (FAILURE|ERROR)!/ {
+		/^\[ERROR\] (.* -- |[^[:space:]]+[[:space:]][[:space:]]+)Time elapsed: .* <<< (FAILURE|ERROR)!/ {
 			line = clean($0)
-			sub(/[[:space:]]+-- Time elapsed:.*/, "", line)
+			sub(/[[:space:]]+(--[[:space:]]+)?Time elapsed:.*/, "", line)
 			add("Test", line)
 			test_failure = 1
 			expect_exception = 1
@@ -293,6 +291,7 @@ forward_signal() {
 
 	if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
 		kill "-$signal" "$child_pid" 2>/dev/null || true
+		# A child that ignores the signal can keep this wait blocked; escalation is intentionally omitted.
 		wait "$child_pid" 2>/dev/null || true
 	fi
 	exit "$status"
@@ -303,6 +302,9 @@ if [[ "$passthrough" == true ]]; then
 fi
 
 mkdir -p "$log_dir" || fail "could not create log directory: $log_dir"
+log_template="$log_dir/maven-$(date '+%Y%m%d-%H%M%S')-$$.log.XXXXXX"
+log_file="$(umask 077; mktemp "$log_template")" ||
+	fail "could not create Maven log in: $log_dir"
 
 trap 'forward_signal INT 130' INT
 trap 'forward_signal TERM 143' TERM
@@ -325,7 +327,8 @@ if ((status == 0)); then
 	if [[ "$keep_log" == true ]]; then
 		printf 'Full Maven log: %s\n' "$log_file"
 	else
-		rm -f -- "$log_file"
+		rm -f -- "$log_file" ||
+			printf 'Warning: could not remove Maven log: %s\n' "$log_file" >&2
 	fi
 	exit 0
 fi

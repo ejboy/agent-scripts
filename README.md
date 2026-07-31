@@ -43,7 +43,7 @@ Failure summary:
   Exception: java.lang.AssertionError: expected 400
 
 Full Maven log:
-  /project/.agent-logs/maven/maven-20260730-100000-12345.log
+  /project/.agent-logs/maven/maven-20260730-100000-12345.log.a1B2c3
 
 Re-run with --full for complete live output.
 ```
