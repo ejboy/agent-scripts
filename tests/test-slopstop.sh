@@ -122,13 +122,73 @@ rm -f "$test_root/home/.browser-testing-profile/launch-state"
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 printf '%s\n' 'developer  300  1  9-00:00:00  0.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"
+printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
 output="$(printf '\n' | run_scan --stop)"
 [[ "$output" == *'Colima'* && ! -s "$FAKE_COLIMA_CALLS" ]] || fail_test 'declined stop changed state'
 output="$(printf 'y\n' | run_scan --stop)"
 [[ "$output" == *'Stopped Colima'* && -s "$FAKE_COLIMA_CALLS" ]] || fail_test 'confirmed stop failed'
+# Confirmed stop must invoke colima stop exactly once.
+[[ "$(wc -l <"$FAKE_COLIMA_CALLS" | tr -d ' ')" == 1 ]] || fail_test 'confirmed stop did not run exactly once'
 : >"$FAKE_COLIMA_CALLS"
 output="$(run_scan --stop-safe)"
 [[ "$output" == *'Stopped Colima'* && -s "$FAKE_COLIMA_CALLS" ]] || fail_test 'unprompted stop failed'
+[[ "$(wc -l <"$FAKE_COLIMA_CALLS" | tr -d ' ')" == 1 ]] || fail_test 'unprompted stop did not run exactly once'
+
+# Revalidation must skip when Colima is no longer safe, and must not stop.
+colima_seen="$test_root/colima-status-seen"
+rm -f "$colima_seen"
+: >"$FAKE_COLIMA_CALLS"
+make_stub colima '
+case "$1 $2" in
+  "status --json")
+    if [[ -f "'"$colima_seen"'" ]]; then
+      printf "%s\n" "{\"status\":\"Stopped\",\"runtime\":\"docker\"}"
+    else
+      : >"'"$colima_seen"'"
+      cat "$FAKE_COLIMA_STATUS"
+    fi
+    ;;
+esac
+case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac
+'
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'Skipped Colima: state changed'* ]] || fail_test 'changed Colima state was not skipped'
+[[ ! -s "$FAKE_COLIMA_CALLS" ]] || fail_test 'changed Colima state still stopped'
+# Restore a stable Colima stub for later cases.
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
+printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
+: >"$FAKE_CONTAINERS"
+
+# Stop failure must be reported and yield a nonzero exit status.
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) exit 1 ;; esac'
+set +e
+output="$(run_scan --stop-safe 2>&1)"; exit_status=$?
+set -e
+[[ "$exit_status" -ne 0 && "$output" == *'Failed to stop Colima'* ]] || fail_test 'Colima stop failure was not reported'
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
+
+# Browser candidate whose state changes before stop is skipped.
+mkdir -p "$test_root/home/.browser-testing-profile"
+printf 'service=xyz.pvrlabs.browser.test\npid=%s\n' "$$" >"$test_root/home/.browser-testing-profile/launch-state"
+printf '%s\n' "developer  $$  1  9-00:00:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222" >"$FAKE_PS_OUTPUT"
+rm -f "$bin/colima"
+: >"$FAKE_BROWSER_CALLS"
+ps_calls="$test_root/ps-calls"
+: >"$ps_calls"
+make_stub ps '
+echo ps >>"'"$ps_calls"'"
+# After the initial snapshot(s), revalidation sees no matching process.
+if [[ "$(wc -l <"'"$ps_calls"'" | tr -d " ")" -gt 2 ]]; then
+  : >"$FAKE_PS_OUTPUT"
+fi
+cat "$FAKE_PS_OUTPUT"
+'
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'Skipped Chrome'* && "$output" == *'state changed'* ]] || fail_test 'changed browser state was not skipped'
+[[ ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'changed browser state still stopped'
+make_stub ps 'cat "$FAKE_PS_OUTPUT"'
+rm -f "$test_root/home/.browser-testing-profile/launch-state"
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 
 set +e
 output="$(run_scan --bogus 2>&1)"; exit_status=$?

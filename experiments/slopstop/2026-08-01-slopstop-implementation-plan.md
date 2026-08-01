@@ -14,18 +14,18 @@ It has two result categories:
 1. **SAFE TO STOP** — authoritative evidence shows that no active workload remains and a graceful native stop action exists.
 2. **NEEDS REVIEW** — recognized developer processes are old and consuming meaningful CPU or unusually high memory, but SlopStop cannot safely stop them automatically.
 
-The verified minimal baseline covers deterministic tests, the working Colima detector, and responsive output. Further implementation proceeds with safe stopping and revalidation before adding review-process scanning.
+The verified minimal baseline covers deterministic tests, Colima detection and safe stop, compact output, and early review-process scanning. Further work continues with Phase 2 CPU observation and recognition hardening.
 
 ## Progress
 
-Current Phase: Phase 1 — Recover a working minimal product  
-Current Chunk: Chunk 4 — Implement safe stopping and revalidation
+Current Phase: Phase 2 — Add review-only process detection  
+Current Chunk: Chunk 5 — Implement one-second CPU observation  
 Status: Active
 
 ### Phase Checklist
 
 - [x] Phase 0 — Product definition and scope
-- [ ] Phase 1 — Recover a working minimal product
+- [x] Phase 1 — Recover a working minimal product
 - [ ] Phase 2 — Add review-only process detection
 - [ ] Phase 3 — Add more authoritative workload detectors
 - [ ] Phase 4 — Harden, dogfood, and prepare for wider use
@@ -361,7 +361,7 @@ Done criteria:
 
 #### Chunk 4 — Implement safe stopping and revalidation
 
-Status: [ ]
+Status: [x]
 
 Preconditions:
 
@@ -370,21 +370,23 @@ Preconditions:
 
 Checklist:
 
-- [ ] (impl) Implement read-only default behavior.
-- [ ] (impl) Implement `--stop` with one confirmation prompt.
-- [ ] (impl) Implement `--stop-safe` without prompting.
-- [ ] (impl) Re-run Colima authoritative checks immediately before stopping.
-- [ ] (impl) Skip stopping when state changed.
-- [ ] (impl) Stop with `colima stop`.
-- [ ] (impl) Surface stop failures with nonzero status.
-- [ ] (impl) Keep revalidation pure; do not append duplicate candidates to shared report arrays.
-- [ ] (test) Confirm declined prompt performs no stop.
-- [ ] (test) Confirm accepted prompt stops exactly once.
-- [ ] (test) Confirm `--stop-safe` stops exactly once.
-- [ ] (test) Confirm changed state causes a skip.
-- [ ] (test) Confirm stop failure is reported and returns nonzero.
+- [x] (impl) Implement read-only default behavior.
+- [x] (impl) Implement `--stop` with one confirmation prompt.
+- [x] (impl) Implement `--stop-safe` without prompting.
+- [x] (impl) Re-run Colima authoritative checks immediately before stopping.
+- [x] (impl) Skip stopping when state changed.
+- [x] (impl) Stop with `colima stop`.
+- [x] (impl) Surface stop failures with nonzero status.
+- [x] (impl) Keep revalidation pure; do not append duplicate candidates to shared report arrays.
+- [x] (test) Confirm declined prompt performs no stop.
+- [x] (test) Confirm accepted prompt stops exactly once.
+- [x] (test) Confirm `--stop-safe` stops exactly once.
+- [x] (test) Confirm changed state causes a skip.
+- [x] (test) Confirm stop failure is reported and returns nonzero.
 - [ ] (verify) Manually exercise `--stop` with idle Colima.
 - [ ] (verify) Restart Colima manually after the test.
+
+Completion note: Chunk 4 is complete for implementation and deterministic fixtures. Pure revalidation uses `colima_still_safe` / `evaluate_browser_safe` without mutating report arrays. Manual Colima stop dogfood remains optional user verification.
 
 Done criteria:
 

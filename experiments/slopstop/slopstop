@@ -204,13 +204,15 @@ add_safe() {
 	safe_kind+=("$1"); safe_name+=("$2"); safe_age+=("$3"); safe_cpu+=("$4"); safe_memory+=("$5"); safe_details+=("$6"); safe_id+=("$7")
 }
 
-detect_colima() {
+# Pure check: Colima is running with zero active containers on its own runtime.
+# Returns 0 when safe to stop, 1 otherwise. Does not mutate report arrays.
+colima_still_safe() {
 	local colima status_json status runtime profile context runtime_command containers
-	colima="$(command -v colima 2>/dev/null || true)"; [[ -n "$colima" ]] || return 0
-	status_json="$("$colima" status --json 2>/dev/null)" || return 0
+	colima="$(command -v colima 2>/dev/null || true)"; [[ -n "$colima" ]] || return 1
+	status_json="$("$colima" status --json 2>/dev/null)" || return 1
 	status_json="$(tr -d '[:space:]' <<<"$status_json")"
 	status="$(sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
-	[[ -z "$status" || "$status" == Running ]] || return 0
+	[[ -z "$status" || "$status" == Running ]] || return 1
 	runtime="$(sed -n 's/.*"runtime"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
 	profile="$(sed -n 's/.*"profile"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
 	[[ -n "$profile" ]] || profile="default"
@@ -218,17 +220,21 @@ detect_colima() {
 	case "$runtime" in
 		docker) runtime_command="$(command -v docker 2>/dev/null || true)" ;;
 		containerd) runtime_command="$(command -v nerdctl 2>/dev/null || true)" ;;
-		*) return 0 ;;
+		*) return 1 ;;
 	esac
-	[[ -n "$runtime_command" ]] || return 0
+	[[ -n "$runtime_command" ]] || return 1
 	if [[ "$runtime" == docker ]]; then
 		# Never use the globally selected Docker context: it may point at a
 		# different daemon while Colima is idle.
-		containers="$("$runtime_command" --context "$context" ps -q 2>/dev/null)" || return 0
+		containers="$("$runtime_command" --context "$context" ps -q 2>/dev/null)" || return 1
 	else
-		containers="$("$runtime_command" --address "unix://${HOME:-}/.colima/${profile}/containerd.sock" ps -q 2>/dev/null)" || return 0
+		containers="$("$runtime_command" --address "unix://${HOME:-}/.colima/${profile}/containerd.sock" ps -q 2>/dev/null)" || return 1
 	fi
-	[[ -z "$containers" ]] || return 0
+	[[ -z "$containers" ]] || return 1
+	return 0
+}
+detect_colima() {
+	colima_still_safe || return 0
 	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
 }
 process_row_for_pid() {
@@ -238,20 +244,34 @@ process_row_for_pid() {
 	done <"$snapshot"
 	return 1
 }
-detect_browser() {
-	local state_file="${HOME:-}/.browser-testing-profile/launch-state" key value service="" recorded_pid="" row user pid ppid elapsed cpu rss command_line
-	[[ -f "$state_file" ]] || return 0
+# Pure browser safety evaluation against current_snapshot and launch-state.
+# Optional required_pid pins revalidation to the reported candidate.
+# On success prints: pid\telapsed\tcpu\trss and returns 0. Never mutates report arrays.
+evaluate_browser_safe() {
+	local required_pid="${1:-}"
+	local state_file="${HOME:-}/.browser-testing-profile/launch-state"
+	local key value service="" recorded_pid="" row user pid ppid elapsed cpu rss command_line
+	[[ -f "$state_file" ]] || return 1
 	while IFS='=' read -r key value; do case "$key" in service) service="$value" ;; pid) recorded_pid="$value" ;; esac; done <"$state_file"
-	[[ "$service" == xyz.pvrlabs.browser.* ]] || return 0
-	case "$recorded_pid" in ''|*[!0-9]*) return 0 ;; esac
-	row="$(process_row_for_pid "$recorded_pid" "$current_snapshot" 2>/dev/null)" || return 0
+	[[ "$service" == xyz.pvrlabs.browser.* ]] || return 1
+	case "$recorded_pid" in ''|*[!0-9]*) return 1 ;; esac
+	if [[ -n "$required_pid" && "$recorded_pid" != "$required_pid" ]]; then return 1; fi
+	row="$(process_row_for_pid "$recorded_pid" "$current_snapshot" 2>/dev/null)" || return 1
 	IFS=$'\t' read -r user pid ppid elapsed cpu rss command_line <<<"$row"
-	[[ "$user" == "$current_user" ]] || return 0
-	kill -0 "$recorded_pid" 2>/dev/null || return 0
-	[[ "$command_line" == *Chrome* || "$command_line" == *chrome* ]] || return 0
-	[[ "$command_line" == *'--remote-debugging-port=9222'* ]] || return 0
-	command -v launchctl >/dev/null 2>&1 || return 0
-	launchctl print "$service" >/dev/null 2>&1 && return 0
+	[[ "$user" == "$current_user" ]] || return 1
+	kill -0 "$recorded_pid" 2>/dev/null || return 1
+	[[ "$command_line" == *Chrome* || "$command_line" == *chrome* ]] || return 1
+	[[ "$command_line" == *'--remote-debugging-port=9222'* ]] || return 1
+	command -v launchctl >/dev/null 2>&1 || return 1
+	# Active launcher ownership means the browser is not an orphaned safe target.
+	launchctl print "$service" >/dev/null 2>&1 && return 1
+	printf '%s\t%s\t%s\t%s\n' "$recorded_pid" "$elapsed" "$cpu" "$rss"
+	return 0
+}
+detect_browser() {
+	local metrics recorded_pid elapsed cpu rss
+	metrics="$(evaluate_browser_safe)" || return 0
+	IFS=$'\t' read -r recorded_pid elapsed cpu rss <<<"$metrics"
 	add_safe "browser" "Chrome" "$(format_age "$(age_seconds "$elapsed")")" "$(format_cpu "$cpu")" "$(format_memory "$rss")" "Test browser; launcher exited" "$recorded_pid"
 }
 
@@ -330,18 +350,18 @@ print_footer() {
 		fi
 	fi
 }
+# Revalidation is pure: never append to safe_* report arrays.
 revalidate_colima() {
-	local old_count=${#safe_name[@]}; detect_colima; local i
-	for ((i=old_count; i<${#safe_name[@]}; i++)); do [[ "${safe_id[i]}" == colima ]] && return 0; done
-	return 1
+	colima_still_safe
 }
 revalidate_browser() {
-	local old_count=${#safe_name[@]}; take_snapshot "$second_snapshot"; current_snapshot="$second_snapshot"; detect_browser; local i
-	for ((i=old_count; i<${#safe_name[@]}; i++)); do [[ "${safe_id[i]}" == "$1" ]] && return 0; done
-	return 1
+	take_snapshot "$second_snapshot"
+	current_snapshot="$second_snapshot"
+	evaluate_browser_safe "$1" >/dev/null
 }
 stop_safe_candidates() {
 	local i status=0 answer launcher candidate_count="${#safe_name[@]}"
+	local colima_bin
 	if [[ "$mode" == prompt ]]; then
 		printf 'Stop all %d safe candidates? [y/N] ' "${#safe_name[@]}" >&2; IFS= read -r answer || answer=""
 		case "$answer" in y|Y|yes|YES|Yes) ;; *) return 0 ;; esac
@@ -349,11 +369,25 @@ stop_safe_candidates() {
 	for ((i=0; i<candidate_count; i++)); do
 		if [[ "${safe_id[i]}" == colima ]]; then
 			if ! revalidate_colima; then printf 'Skipped %s: state changed\n' "${safe_name[i]}"; continue; fi
-			if ! colima stop; then printf 'Failed to stop Colima\n' >&2; status=1; else printf 'Stopped Colima\n'; fi
+			colima_bin="$(command -v colima 2>/dev/null || true)"
+			if [[ -z "$colima_bin" ]] || ! "$colima_bin" stop; then
+				printf 'Failed to stop Colima\n' >&2
+				status=1
+			else
+				printf 'Stopped Colima\n'
+			fi
 		elif [[ "${safe_id[i]}" =~ ^[0-9]+$ ]]; then
-			if ! revalidate_browser "${safe_id[i]}"; then printf 'Skipped %s (PID %s): state changed\n' "${safe_name[i]}" "${safe_id[i]}"; continue; fi
+			if ! revalidate_browser "${safe_id[i]}"; then
+				printf 'Skipped %s (PID %s): state changed\n' "${safe_name[i]}" "${safe_id[i]}"
+				continue
+			fi
 			launcher="$(command -v "${SLOPSTOP_BROWSER_LAUNCHER:-launch-browser}" 2>/dev/null || true)"
-			if [[ -z "$launcher" ]] || ! "$launcher" --stop; then printf 'Failed to stop %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}" >&2; status=1; else printf 'Stopped %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}"; fi
+			if [[ -z "$launcher" ]] || ! "$launcher" --stop; then
+				printf 'Failed to stop %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}" >&2
+				status=1
+			else
+				printf 'Stopped %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}"
+			fi
 		fi
 	done
 	return "$status"
@@ -366,4 +400,7 @@ print_safe_section
 observe_and_collect_reviews
 print_review_section
 print_footer
-if [[ "$mode" != scan && ${#safe_name[@]} -gt 0 ]]; then stop_safe_candidates; fi
+if [[ "$mode" != scan && ${#safe_name[@]} -gt 0 ]]; then
+	stop_safe_candidates
+	exit $?
+fi
