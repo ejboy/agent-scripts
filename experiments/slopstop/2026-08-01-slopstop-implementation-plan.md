@@ -14,12 +14,12 @@ It has two result categories:
 1. **SAFE TO STOP** — authoritative evidence shows that no active workload remains and a graceful native stop action exists.
 2. **NEEDS REVIEW** — recognized developer processes are old and consuming meaningful CPU or unusually high memory, but SlopStop cannot safely stop them automatically.
 
-The verified minimal baseline covers deterministic tests and the working Colima detector. Further implementation proceeds from compact output before adding review-process scanning.
+The verified minimal baseline covers deterministic tests, the working Colima detector, and responsive output. Further implementation proceeds with safe stopping and revalidation before adding review-process scanning.
 
 ## Progress
 
 Current Phase: Phase 1 — Recover a working minimal product  
-Current Chunk: Chunk 3 — Implement compact responsive output
+Current Chunk: Chunk 4 — Implement safe stopping and revalidation
 Status: Active
 
 ### Phase Checklist
@@ -328,7 +328,7 @@ Done criteria:
 
 #### Chunk 3 — Implement compact responsive output
 
-Status: [ ]
+Status: [x]
 
 Preconditions:
 
@@ -337,18 +337,20 @@ Preconditions:
 
 Checklist:
 
-- [ ] (impl) Print the SlopStop heading and `SAFE TO STOP` section.
-- [ ] (impl) Print aligned normal-width columns.
-- [ ] (impl) Use `—` for logical resources without a meaningful PID.
-- [ ] (impl) Humanize age, CPU, and memory only when authoritative values exist.
-- [ ] (impl) Avoid fake values such as `Potential reclaim: unknown`.
-- [ ] (impl) Implement compact indented output below a defined width threshold.
-- [ ] (impl) Keep non-TTY output deterministic.
-- [ ] (test) Cover standard-width output.
-- [ ] (test) Cover narrow-width output.
-- [ ] (test) Cover empty safe results.
-- [ ] (verify) Confirm no line exceeds the selected narrow fixture width where practical.
-- [ ] (sanity) Confirm output contains no basic process-management explanations.
+- [x] (impl) Print the SlopStop heading and `SAFE TO STOP` section.
+- [x] (impl) Print aligned normal-width columns.
+- [x] (impl) Use `—` for logical resources without a meaningful PID.
+- [x] (impl) Humanize age, CPU, and memory only when authoritative values exist.
+- [x] (impl) Avoid fake values such as `Potential reclaim: unknown`.
+- [x] (impl) Implement compact indented output below a defined width threshold.
+- [x] (impl) Keep non-TTY output deterministic.
+- [x] (test) Cover standard-width output.
+- [x] (test) Cover narrow-width output.
+- [x] (test) Cover empty safe results.
+- [x] (verify) Confirm no line exceeds the selected narrow fixture width where practical.
+- [x] (sanity) Confirm output contains no basic process-management explanations.
+
+Completion note: Chunk 3 is complete based on deterministic standard-width, narrow-width, empty-result, and 79/80/89/90-column boundary tests that preserve the full safety reason.
 
 Done criteria:
 

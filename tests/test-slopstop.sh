@@ -36,6 +36,23 @@ printf '%s\n' \
 output="$(run_scan)"
 [[ "$output" == *'SAFE TO STOP'* && "$output" == *'Colima'* ]] || fail_test 'empty Colima was not safe'
 [[ "$output" != *'vite'* ]] || fail_test 'young process was reviewed'
+[[ "$output" != *'Potential reclaim: unknown'* ]] || fail_test 'fake reclaim value was printed'
+
+narrow_output="$(SLOPSTOP_WIDTH=60 run_scan)"
+[[ "$narrow_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test 'narrow safe layout was not used'
+[[ "$narrow_output" == *$'PID: —  AGE: —  CPU: —  MEMORY: —'* ]] || fail_test 'narrow safe fields were missing'
+if awk 'length($0) > 60 { exit 1 }' <<<"$narrow_output"; then :; else fail_test 'narrow output overflowed'; fi
+
+for width in 79 80 89 90; do
+	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
+	[[ "$boundary_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test "width $width did not use compact layout"
+	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"
+done
+for width in 120; do
+	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
+	[[ "$boundary_output" == *'PID     TYPE'* ]] || fail_test "width $width did not use the normal table"
+	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"
+done
 
 # The globally selected Docker daemon must not affect Colima classification.
 
@@ -118,5 +135,33 @@ output="$(run_scan --bogus 2>&1)"; exit_status=$?
 set -e
 [[ "$exit_status" -ne 0 && "$output" == *'Usage:'* ]] || fail_test 'unknown argument accepted'
 [[ "$(run_scan --help)" == *'Usage: slopstop'* ]] || fail_test 'help failed'
+
+# Progress lifecycle: classification work must finish before the progress line is
+# cleared. After clear, no expensive external commands (ps/id/sort/awk) run.
+progress_shown="$test_root/progress-shown"
+progress_cleared="$test_root/progress-cleared"
+post_clear_log="$test_root/post-clear-commands"
+: >"$post_clear_log"
+rm -f "$progress_shown" "$progress_cleared"
+make_stub id 'if [[ -f "'"$progress_cleared"'" ]]; then echo id >>"'"$post_clear_log"'"; fi; echo developer'
+make_stub ps 'if [[ -f "'"$progress_cleared"'" ]]; then echo ps >>"'"$post_clear_log"'"; fi; cat "$FAKE_PS_OUTPUT"'
+make_stub sort 'if [[ -f "'"$progress_cleared"'" ]]; then echo sort >>"'"$post_clear_log"'"; fi; /usr/bin/sort "$@"'
+make_stub awk 'if [[ -f "'"$progress_cleared"'" ]]; then echo awk >>"'"$post_clear_log"'"; fi; /usr/bin/awk "$@"'
+printf '%s\n' \
+  "developer  200  1  10:00:00  8.2  420000 /opt/opencode opencode --serve" \
+  'developer  202  1  2-00:00:00 1.0 3000000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' >"$FAKE_PS_OUTPUT"
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac'
+: >"$FAKE_CONTAINERS"
+output="$(
+	SLOPSTOP_PROGRESS_SHOWN_FILE="$progress_shown" \
+	SLOPSTOP_PROGRESS_CLEARED_FILE="$progress_cleared" \
+	run_scan
+)"
+[[ -f "$progress_shown" ]] || fail_test 'progress shown marker was not written'
+[[ -f "$progress_cleared" ]] || fail_test 'progress cleared marker was not written'
+[[ ! -s "$post_clear_log" ]] || fail_test "expensive command ran after progress clear: $(tr '\n' ' ' <"$post_clear_log")"
+[[ "$output" != *'Scanning developer workloads'* ]] || fail_test 'progress text leaked into non-TTY output'
+[[ "$output" == *'NEEDS REVIEW'* && "$output" == *'200     opencode'* ]] || fail_test 'review report missing after progress lifecycle'
+
 bash -n "$runner" || fail_test 'syntax check failed'
 echo 'slopstop tests passed'
