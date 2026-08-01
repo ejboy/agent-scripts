@@ -42,13 +42,22 @@ narrow_output="$(SLOPSTOP_WIDTH=60 run_scan)"
 [[ "$narrow_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test 'narrow safe layout was not used'
 [[ "$narrow_output" == *$'PID: —  AGE: —  CPU: —  MEMORY: —'* ]] || fail_test 'narrow safe fields were missing'
 if awk 'length($0) > 60 { exit 1 }' <<<"$narrow_output"; then :; else fail_test 'narrow output overflowed'; fi
+[[ "$narrow_output" == *'Running; no active containers'* ]] || fail_test 'narrow layout truncated the safety reason'
 
-for width in 79 80 89 90; do
+# Compact only when fixed columns leave fewer than 25 columns for DETAILS
+# (width < 46+25 = 71). Typical 80-column and wider widths use the table;
+# DETAILS may truncate only when the terminal is tight (plan: truncate details first).
+for width in 70; do
 	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
 	[[ "$boundary_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test "width $width did not use compact layout"
 	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"
 done
-for width in 120; do
+for width in 71 80; do
+	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
+	[[ "$boundary_output" == *'PID     TYPE'* ]] || fail_test "width $width did not use the normal table"
+done
+# Colima reason is 29 chars; full text fits when detail width >= 29 → terminal >= 75.
+for width in 80 89 90 120; do
 	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
 	[[ "$boundary_output" == *'PID     TYPE'* ]] || fail_test "width $width did not use the normal table"
 	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"

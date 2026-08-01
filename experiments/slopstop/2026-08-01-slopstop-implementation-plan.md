@@ -167,9 +167,11 @@ Rules:
 - Right-align numeric fields where practical.
 - Never truncate PID, process name, age, CPU, or memory solely to preserve details.
 - Truncate or omit `DETAILS` first.
-- On narrow terminals, switch to a compact indented record layout rather than overflowing.
+- Prefer the normal table whenever the terminal leaves at least ~25 columns for `DETAILS` (fixed columns are 46 wide; compact threshold is width &lt; 71).
+- On narrower terminals only, switch to a compact indented record layout rather than overflowing.
+- Do not force compact mode merely because a detail string would truncate; truncate `DETAILS` on the table instead.
 - Do not depend on terminal height.
-- Use `tput cols` only when appropriate, with an 80-column fallback.
+- Resolve width as: `SLOPSTOP_WIDTH`, then positive `COLUMNS`, then `tput cols`, then `stty size`, else 80.
 - Color is optional and must never be required for meaning.
 - Respect non-TTY output and `NO_COLOR` if color is added.
 
@@ -350,12 +352,13 @@ Checklist:
 - [x] (verify) Confirm no line exceeds the selected narrow fixture width where practical.
 - [x] (sanity) Confirm output contains no basic process-management explanations.
 
-Completion note: Chunk 3 is complete based on deterministic standard-width, narrow-width, empty-result, and 79/80/89/90-column boundary tests that preserve the full safety reason.
+Completion note: Chunk 3 is complete. Fixed-column budget is 46 (not an inflated 62). Compact layout is used only when width &lt; 71; typical 80-column and wider terminals use the table and may truncate `DETAILS`. Boundary fixtures cover compact (60, 70) and table (71, 80, 89, 90, 120). Width resolution uses `SLOPSTOP_WIDTH` / `COLUMNS` / `tput` / `stty`.
 
 Done criteria:
 
 - Normal output is aligned and compact.
 - Narrow output does not overflow merely because fixed columns exceed terminal width.
+- Widescreen and ordinary 80-column terminals use the table, not the compact layout.
 - Output remains useful without color.
 - Empty output is concise.
 

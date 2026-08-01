@@ -12,7 +12,11 @@ readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
 readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
 readonly CPU_SAMPLE_INTERVAL_SECONDS=7
-readonly NORMAL_TABLE_FIXED_WIDTH=62
+# Width of the fixed columns before DETAILS:
+#   "%-7s %-12s %5s %7s %9s  " → 7+1+12+1+5+1+7+1+9+2 = 46
+readonly NORMAL_TABLE_FIXED_WIDTH=46
+# Prefer the table whenever there is at least this much room for DETAILS.
+# Narrower terminals use the multi-line compact layout instead.
 readonly MIN_NORMAL_DETAIL_WIDTH=25
 # The second ps snapshot is the sampled CPU observation; this avoids trusting
 # one instantaneous %CPU value while keeping the first implementation simple.
@@ -275,20 +279,47 @@ detect_browser() {
 	add_safe "browser" "Chrome" "$(format_age "$(age_seconds "$elapsed")")" "$(format_cpu "$cpu")" "$(format_memory "$rss")" "Test browser; launcher exited" "$recorded_pid"
 }
 
-truncate_detail() { local value="$1" max="$2"; if ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
-terminal_width() { if [[ -n "${SLOPSTOP_WIDTH:-}" ]]; then printf '%s' "$SLOPSTOP_WIDTH"; elif [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then tput cols 2>/dev/null || printf '80'; else printf '80'; fi; }
-normal_table_detail_width() { printf '%s\n' $(( $1 - NORMAL_TABLE_FIXED_WIDTH )); }
+truncate_detail() { local value="$1" max="$2"; if ((max < 1)); then printf ''; elif ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
+terminal_width() {
+	local cols=""
+	if [[ -n "${SLOPSTOP_WIDTH:-}" ]]; then
+		printf '%s' "$SLOPSTOP_WIDTH"
+		return
+	fi
+	# Prefer a positive COLUMNS (some hosts export COLUMNS=0 when unset-ish).
+	if [[ -n "${COLUMNS:-}" && "$COLUMNS" =~ ^[1-9][0-9]*$ ]]; then
+		printf '%s' "$COLUMNS"
+		return
+	fi
+	if [[ -t 1 ]]; then
+		if command -v tput >/dev/null 2>&1; then
+			cols="$(tput cols 2>/dev/null || true)"
+			if [[ -n "$cols" && "$cols" =~ ^[1-9][0-9]*$ ]]; then
+				printf '%s' "$cols"
+				return
+			fi
+		fi
+		# stty reads the tty size even when COLUMNS is stale.
+		cols="$(stty size 2>/dev/null | awk '{print $2}' || true)"
+		if [[ -n "$cols" && "$cols" =~ ^[1-9][0-9]*$ ]]; then
+			printf '%s' "$cols"
+			return
+		fi
+	fi
+	printf '80'
+}
+normal_table_detail_width() {
+	local width="$1" detail_width
+	detail_width=$((width - NORMAL_TABLE_FIXED_WIDTH))
+	((detail_width < 1)) && detail_width=1
+	printf '%s\n' "$detail_width"
+}
+# Compact layout is only for truly narrow terminals. On wider ones, keep the
+# table and truncate DETAILS (never the identity/metrics columns).
 normal_table_needs_compact() {
-	local width="$1" detail_width i
-	detail_width="$(normal_table_detail_width "$width")"
-	((detail_width < MIN_NORMAL_DETAIL_WIDTH)) && return 0
-	for ((i=0; i<${#safe_details[@]}; i++)); do
-		((${#safe_details[i]} > detail_width)) && return 0
-	done
-	for ((i=0; i<${#review_details[@]}; i++)); do
-		((${#review_details[i]} > detail_width)) && return 0
-	done
-	return 1
+	local width="$1" detail_width
+	detail_width=$((width - NORMAL_TABLE_FIXED_WIDTH))
+	((detail_width < MIN_NORMAL_DETAIL_WIDTH))
 }
 print_compact_safe_section() {
 	local width="$1" detail_width=$((width - 2)) i safe_pid
