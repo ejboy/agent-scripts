@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+
+# slopstop 0.1.0
+# Concise, conservative reports of forgotten local developer workloads.
+
+set -uo pipefail
+
+readonly SLOPSTOP_VERSION="0.1.0"
+readonly MIN_OLD_AGE_SECONDS=$((8 * 60 * 60))
+readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
+readonly REVIEW_CPU_PERCENT=5
+readonly HIGH_CPU_PERCENT=20
+readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
+readonly CPU_SAMPLE_INTERVAL_SECONDS=7
+# The second ps snapshot is the sampled CPU observation; this avoids trusting
+# one instantaneous %CPU value while keeping the first implementation simple.
+
+mode="scan"
+sample_interval="${SLOPSTOP_SAMPLE_INTERVAL:-$CPU_SAMPLE_INTERVAL_SECONDS}"
+sleep_command="${SLOPSTOP_SLEEP_COMMAND:-sleep}"
+tmp_dir=""
+current_snapshot=""
+safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
+review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
+
+	usage() {
+	printf '%s\n' \
+		"SlopStop $SLOPSTOP_VERSION" \
+		"Usage: slopstop [--stop|--stop-safe|--help]" \
+		"  Scan forgotten developer workloads, or stop only authoritative safe candidates."
+}
+fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
+cleanup() { [[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"; }
+trap cleanup EXIT
+clear_sampling_progress() {
+	[[ -t 1 ]] && printf '\r\033[2K'
+}
+interrupt() {
+	clear_sampling_progress
+	trap - INT
+	exit 130
+}
+trap interrupt INT
+
+while (($# > 0)); do
+	case "$1" in
+		--stop) mode="prompt" ;;
+		--stop-safe) mode="safe" ;;
+		--help|-h) usage; exit 0 ;;
+		*) usage >&2; exit 1 ;;
+	esac
+	shift
+done
+
+[[ "$(uname -s)" == "Darwin" ]] || fail "SlopStop supports macOS only"
+case "$sample_interval" in ''|*[!0-9]*) fail "SLOPSTOP_SAMPLE_INTERVAL must be a non-negative integer" ;; esac
+sleep_command="$(command -v "$sleep_command" 2>/dev/null || true)"
+[[ -n "$sleep_command" ]] || fail "sleep is required"
+
+tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
+first_snapshot="$tmp_dir/first"
+second_snapshot="$tmp_dir/second"
+ps_command="$(command -v ps 2>/dev/null || true)"
+[[ -n "$ps_command" ]] || fail "ps is required"
+
+take_snapshot() {
+	local destination="$1"
+	"$ps_command" -axo user= -o pid= -o ppid= -o etime= -o '%cpu=' -o rss= -o command= >"$destination" || fail "could not read the process table"
+}
+take_snapshot "$first_snapshot"
+
+sample_cpu() {
+	if [[ -t 1 ]]; then
+		spinner_frames=('|' '/' '-' '\')
+		remaining="$sample_interval"
+		frame=0
+		while ((remaining > 0)); do
+			printf '\rSampling CPU %s %ss' "${spinner_frames[frame]}" "$remaining"
+			"$sleep_command" 1
+			sleep_status=$?
+			if ((sleep_status != 0)); then
+				clear_sampling_progress
+				exit "$sleep_status"
+			fi
+			remaining=$((remaining - 1))
+			frame=$(((frame + 1) % 4))
+		done
+	else
+		"$sleep_command" "$sample_interval" || exit $?
+	fi
+	take_snapshot "$second_snapshot"
+	clear_sampling_progress
+}
+
+age_seconds() {
+	local value="$1" days=0 hours=0 minutes=0 seconds=0
+	if [[ "$value" == *-* ]]; then days="${value%%-*}"; value="${value#*-}"; fi
+	IFS=: read -r hours minutes seconds <<<"$value"
+	if [[ -z "${seconds:-}" ]]; then seconds="$minutes"; minutes="$hours"; hours=0; fi
+	printf '%s\n' $((10#$days * 86400 + 10#$hours * 3600 + 10#$minutes * 60 + 10#$seconds))
+}
+format_age() {
+	local seconds="$1"
+	if [[ "$seconds" == "—" ]]; then printf '—'; elif ((seconds >= 86400)); then printf '%dd' $((seconds / 86400)); elif ((seconds >= 3600)); then printf '%dh' $((seconds / 3600)); else printf '%dm' $((seconds / 60)); fi
+}
+format_memory() {
+	local kb="$1"
+	if [[ "$kb" == "—" ]]; then printf '—'; else awk -v kb="$kb" 'BEGIN { if (kb >= 1048576) printf "%.1f GB", kb / 1048576; else if (kb >= 1024) printf "%.0f MB", kb / 1024; else printf "%d KB", kb }'; fi
+}
+format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
+normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
+
+recognized_process() {
+	local command_line="$1" name
+	name="$(normalize_process_name "$command_line")"
+	[[ "$command_line" == *opencode* ]] && return 0
+	case "$name:$command_line" in
+		opencode:*|*:*bun*opencode*) return 0 ;;
+		java:*gradle*|java:*GradleDaemon*|java:*kotlin*|java:*KotlinCompileDaemon*|java:*mvnd*|java:*maven.daemon*) return 0 ;;
+		mvnd:*|gradle:*|kotlin-daemon:*|vite:*|next:*|webpack:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
+		*:*'python -m http.server'*|*:*'python3 -m http.server'*|*:*'go run '*|*:*'cargo watch'*) return 0 ;;
+		*:*--remote-debugging-*|*:*--headless*) return 0 ;;
+	esac
+	return 1
+}
+is_review_candidate() {
+	local age="$1" cpu_int="${2%.*}" rss="$3"
+	((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) && return 0
+	((age >= MIN_OLD_AGE_SECONDS && rss >= REVIEW_RSS_KB)) && return 0
+	((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) && return 0
+	return 1
+}
+collect_reviews() {
+	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
+	: >"$tmp_dir/reviews"
+	while read -r user pid ppid elapsed cpu rss command_line; do
+		[[ -n "${pid:-}" && "$pid" != "PID" ]] || continue
+		[[ "$user" == "$(id -un)" ]] || continue
+		[[ "$pid" =~ ^[0-9]+$ && "$rss" =~ ^[0-9]+$ ]] || continue
+		age="$(age_seconds "$elapsed")" || continue
+		recognized_process "$command_line" || continue
+		is_review_candidate "$age" "$cpu" "$rss" || continue
+		name="$(normalize_process_name "$command_line")"
+		printf '%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" >>"$tmp_dir/reviews"
+	done <"$snapshot"
+	while IFS=$'\t' read -r pid name age cpu rss; do
+		review_pid+=("$pid"); review_name+=("$name"); review_age+=("$(format_age "$age")")
+		review_cpu+=("$(format_cpu "$cpu")"); review_memory+=("$(format_memory "$rss")"); review_details+=("recognized developer workload")
+	done < <(LC_ALL=C sort -t $'\t' -k4,4nr "$tmp_dir/reviews")
+}
+add_safe() {
+	safe_kind+=("$1"); safe_name+=("$2"); safe_age+=("$3"); safe_cpu+=("$4"); safe_memory+=("$5"); safe_details+=("$6"); safe_id+=("$7")
+}
+
+detect_colima() {
+	local colima status_json status runtime profile context runtime_command containers
+	colima="$(command -v colima 2>/dev/null || true)"; [[ -n "$colima" ]] || return 0
+	status_json="$("$colima" status --json 2>/dev/null)" || return 0
+	status_json="$(tr -d '[:space:]' <<<"$status_json")"
+	status="$(sed -n 's/.*"status"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
+	[[ -z "$status" || "$status" == Running ]] || return 0
+	runtime="$(sed -n 's/.*"runtime"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
+	profile="$(sed -n 's/.*"profile"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
+	[[ -n "$profile" ]] || profile="default"
+	if [[ "$profile" == default ]]; then context="colima"; else context="colima-$profile"; fi
+	case "$runtime" in
+		docker) runtime_command="$(command -v docker 2>/dev/null || true)" ;;
+		containerd) runtime_command="$(command -v nerdctl 2>/dev/null || true)" ;;
+		*) return 0 ;;
+	esac
+	[[ -n "$runtime_command" ]] || return 0
+	if [[ "$runtime" == docker ]]; then
+		# Never use the globally selected Docker context: it may point at a
+		# different daemon while Colima is idle.
+		containers="$("$runtime_command" --context "$context" ps -q 2>/dev/null)" || return 0
+	else
+		containers="$("$runtime_command" --address "unix://${HOME:-}/.colima/${profile}/containerd.sock" ps -q 2>/dev/null)" || return 0
+	fi
+	[[ -z "$containers" ]] || return 0
+	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
+}
+process_row_for_pid() {
+	local wanted="$1" snapshot="$2" user pid ppid elapsed cpu rss command_line
+	while read -r user pid ppid elapsed cpu rss command_line; do
+		if [[ "$pid" == "$wanted" ]]; then printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$user" "$pid" "$ppid" "$elapsed" "$cpu" "$rss" "$command_line"; return 0; fi
+	done <"$snapshot"
+	return 1
+}
+detect_browser() {
+	local state_file="${HOME:-}/.browser-testing-profile/launch-state" key value service="" recorded_pid="" row user pid ppid elapsed cpu rss command_line
+	[[ -f "$state_file" ]] || return 0
+	while IFS='=' read -r key value; do case "$key" in service) service="$value" ;; pid) recorded_pid="$value" ;; esac; done <"$state_file"
+	[[ "$service" == xyz.pvrlabs.browser.* ]] || return 0
+	case "$recorded_pid" in ''|*[!0-9]*) return 0 ;; esac
+	row="$(process_row_for_pid "$recorded_pid" "$current_snapshot" 2>/dev/null)" || return 0
+	IFS=$'\t' read -r user pid ppid elapsed cpu rss command_line <<<"$row"
+	[[ "$user" == "$(id -un)" ]] || return 0
+	kill -0 "$recorded_pid" 2>/dev/null || return 0
+	[[ "$command_line" == *Chrome* || "$command_line" == *chrome* ]] || return 0
+	[[ "$command_line" == *'--remote-debugging-port=9222'* ]] || return 0
+	command -v launchctl >/dev/null 2>&1 || return 0
+	launchctl print "$service" >/dev/null 2>&1 && return 0
+	add_safe "browser" "Chrome" "$(format_age "$(age_seconds "$elapsed")")" "$(format_cpu "$cpu")" "$(format_memory "$rss")" "Test browser; launcher exited" "$recorded_pid"
+}
+
+truncate_detail() { local value="$1" max="$2"; if ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
+terminal_width() { if [[ -n "${SLOPSTOP_WIDTH:-}" ]]; then printf '%s' "$SLOPSTOP_WIDTH"; elif [[ -t 1 ]] && command -v tput >/dev/null 2>&1; then tput cols 2>/dev/null || printf '80'; else printf '80'; fi; }
+print_safe_section() {
+	local width safe_detail_width i safe_pid
+	width="$(terminal_width)"
+	safe_detail_width=$((width - 62)); ((safe_detail_width < 8)) && safe_detail_width=8
+	printf 'SlopStop — developer workload scan\n\nSAFE TO STOP\n'
+	if ((${#safe_name[@]} == 0)); then printf 'None.\n'; else
+		printf '%-7s %-12s %5s %7s %9s  %s\n' PID TYPE AGE CPU MEMORY DETAILS
+		for ((i=0; i<${#safe_name[@]}; i++)); do safe_pid="${safe_id[i]}"; [[ "$safe_pid" == colima ]] && safe_pid="—"; printf '%-7s %-12s %5s %7s %9s  %s\n' "$safe_pid" "${safe_name[i]}" "${safe_age[i]}" "${safe_cpu[i]}" "${safe_memory[i]}" "$(truncate_detail "${safe_details[i]}" "$safe_detail_width")"; done
+	fi
+	if ((${#safe_name[@]} > 0)); then printf '\nPotential reclaim: unknown\n'; fi
+	printf '\n'
+}
+print_review_section() {
+	local width review_detail_width i
+	width="$(terminal_width)"
+	review_detail_width=$((width - 59)); ((review_detail_width < 8)) && review_detail_width=8
+	printf 'NEEDS REVIEW\n'
+	if ((${#review_pid[@]} == 0)); then printf 'None.\n'; else
+		printf '%-7s %-12s %5s %7s %9s  %s\n' PID PROCESS AGE CPU MEMORY DETAILS
+		for ((i=0; i<${#review_pid[@]}; i++)); do printf '%-7s %-12s %5s %7s %9s  %s\n' "${review_pid[i]}" "${review_name[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "$(truncate_detail "${review_details[i]}" "$review_detail_width")"; done
+	fi
+	printf '\n'
+}
+print_footer() {
+	if ((${#safe_name[@]} > 0)); then printf '\nRun `slopstop --stop` to confirm stopping all safe candidates.\nRun `slopstop --stop-safe` to stop safe candidates without prompting.\nReview candidates are never stopped automatically.\n'; fi
+}
+revalidate_colima() {
+	local old_count=${#safe_name[@]}; detect_colima; local i
+	for ((i=old_count; i<${#safe_name[@]}; i++)); do [[ "${safe_id[i]}" == colima ]] && return 0; done
+	return 1
+}
+revalidate_browser() {
+	local old_count=${#safe_name[@]}; take_snapshot "$second_snapshot"; current_snapshot="$second_snapshot"; detect_browser; local i
+	for ((i=old_count; i<${#safe_name[@]}; i++)); do [[ "${safe_id[i]}" == "$1" ]] && return 0; done
+	return 1
+}
+stop_safe_candidates() {
+	local i status=0 answer launcher candidate_count="${#safe_name[@]}"
+	if [[ "$mode" == prompt ]]; then
+		printf 'Stop all %d safe candidates? [y/N] ' "${#safe_name[@]}" >&2; IFS= read -r answer || answer=""
+		case "$answer" in y|Y|yes|YES|Yes) ;; *) return 0 ;; esac
+	fi
+	for ((i=0; i<candidate_count; i++)); do
+		if [[ "${safe_id[i]}" == colima ]]; then
+			if ! revalidate_colima; then printf 'Skipped %s: state changed\n' "${safe_name[i]}"; continue; fi
+			if ! colima stop; then printf 'Failed to stop Colima\n' >&2; status=1; else printf 'Stopped Colima\n'; fi
+		elif [[ "${safe_id[i]}" =~ ^[0-9]+$ ]]; then
+			if ! revalidate_browser "${safe_id[i]}"; then printf 'Skipped %s (PID %s): state changed\n' "${safe_name[i]}" "${safe_id[i]}"; continue; fi
+			launcher="$(command -v "${SLOPSTOP_BROWSER_LAUNCHER:-launch-browser}" 2>/dev/null || true)"
+			if [[ -z "$launcher" ]] || ! "$launcher" --stop; then printf 'Failed to stop %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}" >&2; status=1; else printf 'Stopped %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}"; fi
+		fi
+	done
+	return "$status"
+}
+
+current_snapshot="$first_snapshot"
+detect_colima
+detect_browser
+print_safe_section
+sample_cpu
+current_snapshot="$second_snapshot"
+collect_reviews "$second_snapshot"
+print_review_section
+print_footer
+if [[ "$mode" != scan && ${#safe_name[@]} -gt 0 ]]; then stop_safe_candidates; fi
