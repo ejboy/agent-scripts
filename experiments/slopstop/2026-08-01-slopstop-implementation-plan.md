@@ -91,30 +91,23 @@ The following signals alone can never make a candidate safe:
 
 Those signals may only produce **NEEDS REVIEW** candidates.
 
-### CPU sampling
+### CPU heuristics (review-only)
 
-- Process identity, age, and RSS come from a `ps` snapshot taken before sampling.
-- Use macOS `top -l 2 -s <interval> -n 9999 -stats pid,cpu,command` with a default interval of **1 second**.
-- The first top sample establishes the baseline; only the **second** sample is measured CPU.
-- Describe CPU-triggered rows as **busy during sample**, not sustained long-term CPU.
-- Correlate top rows to `ps` by PID and command identity (prefix match against truncated top `COMMAND`) to reduce PID-reuse errors.
-- Processes missing from the second sample, or whose identity no longer matches, are not CPU-reviewed (high-memory reviews may still apply when RSS thresholds are met without trusting top CPU).
-- CPU-based results always belong to `NEEDS REVIEW`.
-- A one-second CPU result must never make anything `SAFE TO STOP`.
-- On a TTY, show an in-place animated progress line (label + spinner) while work runs:
+- Prefer **speed** over multi-second sampling: review rows are advisory and never auto-stopped.
+- Identity, age, RSS, and CPU come from a fresh `ps` snapshot (`%cpu` is an instantaneous heuristic, not sustained load).
+- Describe CPU-triggered rows as **elevated CPU**.
+- High-memory rows use **high memory developer workload**.
+- CPU-based results always belong to `NEEDS REVIEW` and must never make anything `SAFE TO STOP`.
+- On a TTY, show a short in-place spinner while the process table is scanned and the report is built:
 
 ```text
-Sampling CPU... |
-Preparing report... /
+Preparing report... |
 ```
 
-- Phase labels: `Sampling CPU...` during `top`, then `Preparing report...` during classification.
-- Animation is TTY-only and does not extend work artificially; it runs only while real work is in progress.
-- Clear it only after observation **and** review classification, immediately before printing `NEEDS REVIEW`.
-- Clear it before exiting on interruption.
-- Print no sampling/progress message when stdout is redirected or piped.
-- Override interval with `SLOPSTOP_SAMPLE_INTERVAL` (non-negative integer seconds).
-- Tests must stub `top` and must not actually wait.
+- Animation is TTY-only and does not extend work artificially.
+- Clear it immediately before printing `NEEDS REVIEW`, and on interruption.
+- Print no progress message when stdout is redirected or piped.
+- Tests stub `ps` and must not wait on multi-second samples.
 
 ### Review thresholds
 
@@ -126,13 +119,13 @@ review CPU threshold:  5 percent
 high CPU threshold:    20 percent
 high CPU minimum age:  1 hour
 memory threshold:      2 GiB RSS
-CPU observation:       approximately 1 second
+CPU source:            instantaneous ps %CPU (heuristic)
 ```
 
 A recognized developer process is review-worthy when:
 
 ```text
-age >= 8 hours AND CPU >= 5% during the one-second sample
+age >= 8 hours AND CPU >= 5% (ps heuristic)
 ```
 
 or:
@@ -144,7 +137,7 @@ age >= 8 hours AND RSS >= 2 GiB
 or:
 
 ```text
-age >= 1 hour AND CPU >= 20% during the one-second sample
+age >= 1 hour AND CPU >= 20% (ps heuristic)
 ```
 
 ### Output
@@ -460,7 +453,7 @@ Checklist:
 - [ ] Test interruption cleanup where practical.
 - [ ] Manually compare an OpenCode sample with Activity Monitor or interactive `top`.
 
-Completion note: Chunk 5 uses `top -l 2 -s <interval> -n 9999 -stats pid,cpu,command` (default interval 1s). `ps` supplies identity/age/RSS; only the second top sample is measured CPU. Details say `busy during sample` or `high memory developer workload`. Fixtures cover thresholds, disappearance, identity mismatch, and soft top failure. Manual Activity Monitor comparison remains optional dogfood.
+Completion note: Chunk 5 originally used multi-second `top` sampling; that was replaced with a fast instantaneous `ps` `%CPU` heuristic because review candidates are advisory only and `top` was too slow/fragile. Details say `elevated CPU` or `high memory developer workload`. Fixtures cover age/CPU/RSS thresholds without waiting.
 
 Done criteria:
 
