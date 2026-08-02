@@ -287,7 +287,14 @@ set +e
 output="$(run_scan --bogus 2>&1)"; exit_status=$?
 set -e
 [[ "$exit_status" -ne 0 && "$output" == *'Usage:'* ]] || fail_test 'unknown argument accepted'
-[[ "$(run_scan --help)" == *'Usage: slopstop'* ]] || fail_test 'help failed'
+help_output="$(run_scan --help)"
+[[ "$help_output" == *'Usage: slopstop'* ]] || fail_test 'help failed'
+[[ "$help_output" == *'--stop'* && "$help_output" == *'--stop-safe'* ]] || fail_test 'help missing stop modes'
+[[ "$help_output" == *'Review candidates are never stopped automatically.'* ]] || fail_test 'help missing review safety note'
+# Scan output should not repeat the long stop how-to footer.
+scan_with_safe="$(run_scan)"
+[[ "$scan_with_safe" == *'Colima'* ]] || fail_test 'expected a safe Colima row for footer check'
+[[ "$scan_with_safe" != *'Run `slopstop --stop`'* ]] || fail_test 'scan still prints stop how-to footer'
 
 # Progress lifecycle: classification work must finish before the progress line is
 # cleared. After clear, no expensive external commands (ps/top/id/sort) run.

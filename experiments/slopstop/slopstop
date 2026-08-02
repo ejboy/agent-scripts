@@ -36,11 +36,15 @@ progress_shown_marked=0
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
 
-	usage() {
+usage() {
 	printf '%s\n' \
 		"SlopStop $SLOPSTOP_VERSION" \
 		"Usage: slopstop [--stop|--stop-safe|--help]" \
-		"  Scan forgotten developer workloads, or stop only authoritative safe candidates."
+		"  (default)   Scan and report only; never changes machine state." \
+		"  --stop      Stop all safe candidates after one y/N confirmation." \
+		"  --stop-safe Stop all safe candidates without prompting." \
+		"  --help      Show this help." \
+		"Review candidates are never stopped automatically."
 }
 fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 stop_progress_spinner() {
@@ -485,17 +489,8 @@ print_review_section() {
 	fi
 	printf '\n'
 }
-print_footer() {
-	local width
-	if ((${#safe_name[@]} > 0)); then
-		width="$(terminal_width)"
-		if normal_table_needs_compact "$width"; then
-			printf '\nRun `slopstop --stop` to stop safe candidates.\nRun `slopstop --stop-safe` to stop safe candidates.\nReview candidates are never stopped automatically.\n'
-		else
-			printf '\nRun `slopstop --stop` to confirm stopping all safe candidates.\nRun `slopstop --stop-safe` to stop safe candidates without prompting.\nReview candidates are never stopped automatically.\n'
-		fi
-	fi
-}
+# Stop-mode instructions live in --help; keep scan output free of long footers.
+print_footer() { :; }
 # Revalidation is pure: never append to safe_* report arrays.
 revalidate_colima() {
 	colima_still_safe
