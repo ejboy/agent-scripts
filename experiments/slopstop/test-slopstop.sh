@@ -154,7 +154,7 @@ printf '%s\n' \
   "developer  200  1  10:00:00  8.2  420000 /opt/opencode opencode --serve --workspace '/project with spaces'" \
   'developer  201  1  30:00 25.0  100000 /opt/opencode opencode --serve' \
   'developer  202  1  2-00:00:00 1.0 3000000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' \
-  'developer  203  1  10-00:00:00 90.0 100000 /usr/bin/node mystery' >"$FAKE_PS_OUTPUT"
+  'developer  203  1  10-00:00:00 19.9 100000 /usr/bin/node mystery' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *'opencode'* && "$output" == *'pid 200'* ]] || fail_test 'old OpenCode was not reviewed with pid in details'
 [[ "$output" == *'elevated CPU'* ]] || fail_test 'CPU review missing elevated-CPU detail'
@@ -201,15 +201,15 @@ done
 
 printf '%s\n' \
   'developer  330  1  01:22  0.1  217244 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --headless=new' \
-  'developer  331  1  01:22  0.0  100000 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper --type=renderer' \
+  'developer  331  1  10:00:00 90.0 100000 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper --type=renderer' \
   'developer  332  1  10:00:00 90.0 400000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
   'developer  333  1  01:22  0.0  1020 /bin/bash -c /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' \
   'developer  335  1  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *'pid 330'* && "$output" == *'detached debug browser'* ]] || fail_test 'young idle debug Chrome was not reviewed'
 [[ "$output" == *'pid 335'* ]] || fail_test 'remote-debugging-only Chrome was not reviewed'
-[[ "$output" != *'pid 332'* ]] || fail_test 'normal interactive Chrome was reviewed'
-[[ "$output" != *'pid 331'* ]] || fail_test 'Chrome Helper was reviewed'
+[[ "$output" != *'pid 332'* ]] || fail_test 'high-CPU interactive Chrome was reviewed'
+[[ "$output" != *'pid 331'* ]] || fail_test 'high-CPU Chrome Helper was reviewed'
 [[ "$output" != *'pid 333'* ]] || fail_test 'bash wrapper mentioning Chrome path was reviewed'
 
 # launchctl kill-hint detection (PVR Labs launch-browser labels only).
@@ -268,10 +268,10 @@ width_output="$(SLOPSTOP_WIDTH=100 run_scan)"
 [[ "$width_output" == *'kill: launchctl remove xyz.pvrlabs.browser.44498.10298'* ]] || fail_test 'full launchctl label not shown at normal width'
 
 printf '%s\n' \
-  'developer  401  1  10:00:00 90.0 100000 /usr/bin/java -jar app.jar' \
-  'developer  402  1  10:00:00 90.0 100000 /usr/local/bin/node server.js' \
-  'developer  403  1  10:00:00 90.0 100000 /usr/local/bin/bun run index.ts' \
-  'developer  404  1  10:00:00 90.0 100000 /usr/bin/python3 app.py' \
+  'developer  401  1  10:00:00 19.9 100000 /usr/bin/java -jar app.jar' \
+  'developer  402  1  10:00:00 19.9 100000 /usr/local/bin/node server.js' \
+  'developer  403  1  10:00:00 19.9 100000 /usr/local/bin/bun run index.ts' \
+  'developer  404  1  10:00:00 19.9 100000 /usr/bin/python3 app.py' \
   'developer  406  1  10:00:00 90.0 100000 /usr/bin/kernel_task' \
   'developer  407  1  10:00:00 90.0 100000 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer' \
   'other      409  1  10:00:00 90.0 400000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
@@ -280,6 +280,68 @@ for pid in 401 402 403 404 406 407 409; do
 	[[ "$output" != *"pid $pid"* ]] || fail_test "generic/system/other-user pid $pid was incorrectly reviewed"
 done
 [[ "$output" == *$'Needs review\n(none)'* ]] || fail_test 'expected empty review for negative recognition fixtures'
+
+# Generic old/high-CPU fallback: unknown current-user processes, ≥8h, CPU ≥20%.
+printf '%s\n' \
+  'developer  501  1  10:00:00  35.0  100000 /opt/tools/unknown-worker --serve' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 501'* ]] || fail_test 'generic old high-CPU process missing pid'
+[[ "$output" == *'unknown-worker'* ]] || fail_test 'generic old high-CPU process missing name'
+[[ "$output" == *'old high-CPU process'* ]] || fail_test 'generic old high-CPU process missing reason'
+
+printf '%s\n' \
+  'developer  502  1  08:00:00  20.0  100000 /opt/tools/exact-threshold-worker' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 502'* && "$output" == *'old high-CPU process'* ]] || fail_test 'exact generic threshold was not reviewed'
+
+printf '%s\n' \
+  'developer  503  1  02:00:00  35.0  100000 /opt/tools/young-worker' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" != *'pid 503'* ]] || fail_test 'too-young generic process was reviewed'
+
+printf '%s\n' \
+  'developer  504  1  10:00:00  19.9  100000 /opt/tools/quiet-worker' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" != *'pid 504'* ]] || fail_test 'below-CPU-threshold generic process was reviewed'
+
+printf '%s\n' \
+  'other  505  1  10:00:00  80.0  100000 /opt/tools/other-user-worker' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" != *'pid 505'* ]] || fail_test 'other-user generic process was reviewed'
+
+printf '%s\n' \
+  'developer  506  1  2-00:00:00  80.0  100000 kernel_task' \
+  'developer  507  1  2-00:00:00  40.0  100000 /System/Library/CoreServices/system-worker' \
+  'developer  508  1  2-00:00:00  30.0  100000 /usr/libexec/example-service' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+for pid in 506 507 508; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "obvious system process pid $pid was reviewed"
+done
+
+printf '%s\n' \
+  'developer  509  1  02:00:00  20.0  100000 /usr/local/bin/node /project/vite --host' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 509'* && "$output" == *'elevated CPU'* ]] || fail_test 'allowlisted one-hour CPU rule regressed'
+
+printf '%s\n' \
+  'developer  510  1  02:00:00  20.0  100000 /opt/tools/unknown-worker' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" != *'pid 510'* ]] || fail_test 'unrecognized young process matched generic fallback'
+
+printf '%s\n' \
+  'developer  511  1  10:00:00  35.0  100000 /usr/local/bin/node /project/vite --host' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 511'* && "$output" == *'elevated CPU'* ]] || fail_test 'allowlisted old high-CPU process missing'
+[[ "$output" != *'old high-CPU process'* ]] || fail_test 'allowlisted old high-CPU process was reclassified as generic'
+
+# Browser-helper exclusions must not hide unrelated processes that merely use
+# browser-like options (--type=, crashpad) outside a browser app bundle.
+printf '%s\n' \
+  'developer  512  1  10:00:00  90.0  100000 /opt/tools/worker --type=batch' \
+  'developer  513  1  10:00:00  90.0  100000 /opt/tools/crashpad-collector --serve' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 512'* && "$output" == *'old high-CPU process'* ]] || fail_test 'unrelated --type= process was hidden by browser exclusion'
+[[ "$output" == *'pid 513'* && "$output" == *'old high-CPU process'* ]] || fail_test 'unrelated crashpad process was hidden by browser exclusion'
 
 printf '%s\n' \
   'developer  501  1  10:00:00  6.0  100000 /opt/opencode opencode --a' \
@@ -368,15 +430,19 @@ printf '%s\n' 'No daemons are running.' >"$FAKE_MVND_STATUS"
 printf '%s\n' \
   'developer  9200  1  10:00:00  8.0  100000 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
   'developer  9201  1  10:00:00  8.0  100000 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
-  'developer  9204  1  10:00:00  8.0  100000 /Applications/Docker.app/Contents/MacOS/com.docker.backend' \
-  'developer  9202  1  10:00:00 12.0  500000 qemu-system-x86_64 -machine q35' \
-  'developer  9205  1  01:00  0.0  100000 /Applications/Docker.app/Contents/MacOS/Docker Desktop' >"$FAKE_PS_OUTPUT"
+  'developer  9204  1  10:00:00 90.0 100000 /Applications/Docker.app/Contents/MacOS/com.docker.backend' \
+  'developer  9202  1  10:00:00 90.0 500000 qemu-system-x86_64 -machine q35' \
+  'developer  9205  1  01:00  0.0  100000 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9206  1  10:00:00 90.0 100000 /Applications/OrbStack.app/Contents/MacOS/com.orbstack.backend' \
+  'developer  9207  1  10:00:00 90.0 100000 /System/Library/Frameworks/Virtualization.framework/Versions/A/XPCServices/com.apple.Virtualization.VirtualMachine.xpc/Contents/MacOS/com.apple.Virtualization.VirtualMachine' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *'Docker Desktop'* && "$output" == *'pid 9200'* ]] || fail_test 'old Docker Desktop was not reviewed'
 [[ "$output" == *'OrbStack'* && "$output" == *'pid 9201'* ]] || fail_test 'old OrbStack was not reviewed'
-[[ "$output" != *'pid 9204'* ]] || fail_test 'Docker backend was listed separately'
+[[ "$output" != *'pid 9204'* ]] || fail_test 'high-CPU Docker backend was listed separately'
 [[ "$output" != *'pid 9205'* ]] || fail_test 'young idle Docker Desktop was reviewed'
 [[ "$output" != *'pid 9202'* && "$output" != *'qemu'* ]] || fail_test 'raw qemu was listed for review'
+[[ "$output" != *'pid 9206'* ]] || fail_test 'high-CPU OrbStack backend was listed separately'
+[[ "$output" != *'pid 9207'* ]] || fail_test 'Virtualization.framework host process was reviewed'
 
 long_name_out="$(SLOPSTOP_WIDTH=40 run_scan)"
 while IFS= read -r line; do

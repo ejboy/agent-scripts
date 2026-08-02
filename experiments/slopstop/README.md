@@ -28,11 +28,15 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 
 ### Resource gates (ps heuristic)
 
-| Rule | Age | Metric |
-|---|---|---|
-| Elevated CPU | ≥ 8h | `%CPU` ≥ 5 |
-| High CPU (younger) | ≥ 1h | `%CPU` ≥ 20 |
-| High memory | ≥ 8h | RSS ≥ 2 GiB |
+| Scope                | Age |     Metric |
+| -------------------- | --: | ---------: |
+| Allowlisted workload | ≥8h |    CPU ≥5% |
+| Allowlisted workload | ≥1h |   CPU ≥20% |
+| Allowlisted workload | ≥8h | RSS ≥2 GiB |
+| Otherwise-unrecognized current-user process | ≥8h | CPU ≥20% |
+
+The generic high-CPU fallback is review-only. It excludes obvious macOS
+system services and never makes a process eligible for automatic stopping.
 
 ### Not listed
 

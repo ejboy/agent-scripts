@@ -226,6 +226,60 @@ is_allowlisted_process() {
 	esac
 	return 1
 }
+# Obvious macOS services are not useful generic review candidates.
+# This exclusion applies only to the generic old/high-CPU fallback.
+is_generic_system_process() {
+	local name="$1" command_line="$2"
+
+	case "$command_line" in
+		/System/*|/usr/libexec/*|/usr/sbin/*|/sbin/*) return 0 ;;
+	esac
+
+	case "$name" in
+		kernel_task|WindowServer|launchd) return 0 ;;
+	esac
+
+	return 1
+}
+# Return 0 when the command line belongs to a Chrome, Chromium, Edge, or Brave
+# app bundle. Browser-helper exclusions are scoped to these bundles so unrelated
+# processes using similar options (--type=, crashpad) are not hidden.
+is_browser_app_process() {
+	local command_line="$1"
+	case "$command_line" in
+		'/Applications/Google Chrome.app/'*|'/Applications/Chromium.app/'*|'/Applications/Microsoft Edge.app/'*|'/Applications/Brave Browser.app/'*) return 0 ;;
+	esac
+	return 1
+}
+# Deliberately excluded from review regardless of age or CPU: interactive
+# browser main binaries, browser helpers, container-app backends/helpers, and
+# raw VM host processes (qemu, Virtualization.framework). "Not recognized" by
+# the detectors above must not become eligible for the generic fallback; these
+# processes are explicitly recognized as not listed.
+is_not_listed_process() {
+	local name="$1" command_line="$2"
+
+	case "$command_line" in
+		/Applications/Docker.app/*|/Applications/OrbStack.app/*) return 0 ;;
+		/System/Library/Frameworks/Virtualization.framework/*) return 0 ;;
+	esac
+
+	case "$name" in
+		qemu-system-*|qemu-kvm|com.docker.*|com.orbstack.*) return 0 ;;
+	esac
+
+	if is_browser_app_process "$command_line"; then
+		case "$command_line" in
+			'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'*|'/Applications/Chromium.app/Contents/MacOS/Chromium'*|'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'*|'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'*) return 0 ;;
+			*crashpad*|*--type=*) return 0 ;;
+		esac
+		case "$name" in
+			*'Chrome Helper'*|*'Chromium Helper'*|*'Edge Helper'*|*'Brave Helper'*) return 0 ;;
+		esac
+	fi
+
+	return 1
+}
 is_review_candidate() {
 	local age="$1" cpu_int="${2%.*}" rss="$3"
 	((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) && return 0
@@ -257,6 +311,7 @@ collect_reviews() {
 		IFS=: read -r hours minutes seconds <<<"$value"
 		if [[ -z "${seconds:-}" ]]; then seconds="$minutes"; minutes="$hours"; hours=0; fi
 		age=$((10#$days * 86400 + 10#$hours * 3600 + 10#$minutes * 60 + 10#$seconds))
+		cpu_int="${cpu%.*}"
 
 		first="${command_line%% *}"
 		name="${first##*/}"
@@ -270,13 +325,21 @@ collect_reviews() {
 			name="$(container_app_display_name "$command_line")"
 			reason="container runtime"
 		else
-			is_allowlisted_process "$name" "$command_line" || continue
-			is_review_candidate "$age" "$cpu" "$rss" || continue
-			cpu_int="${cpu%.*}"
-			if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) || ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
-				reason="elevated CPU"
+			if is_allowlisted_process "$name" "$command_line"; then
+				is_review_candidate "$age" "$cpu" "$rss" || continue
+
+				if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) \
+					|| ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
+					reason="elevated CPU"
+				else
+					reason="high memory developer workload"
+				fi
 			else
-				reason="high memory developer workload"
+				[[ "$pid" == "$$" ]] && continue
+				is_not_listed_process "$name" "$command_line" && continue
+				is_generic_system_process "$name" "$command_line" && continue
+				((age >= MIN_OLD_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) || continue
+				reason="old high-CPU process"
 			fi
 		fi
 
