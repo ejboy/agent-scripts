@@ -23,8 +23,9 @@ Current Chunk: Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 Status: Active
 
 Note: Chunk 7 (repo launch-browser safe-stop) was dropped. Browsers are
-review-only: main Chrome/Chromium/Edge/Brave processes are always listed
-with no resource gate; they are never auto-stopped.
+review-only when they look detached/orphaned: main Chrome/Chromium/Edge/Brave
+with `--headless` and/or `--remote-debugging-*`, no resource gate, never
+auto-stopped. Everyday interactive browsers are not listed.
 
 ### Phase Checklist
 
@@ -530,8 +531,9 @@ Expand safe cleanup only where native lifecycle state is reliable, while adding 
 Status: [x] cancelled / superseded
 
 Completion note: Dropped. No `launch-browser` / launch-state safe-stop path.
-Main browser processes are always **Needs review** (no age/CPU/RSS gate), never
-safe-to-stop. Helpers/renderers (`--type=…`, `Chrome Helper`) are ignored.
+Only detached debug browsers (main binary + headless/remote-debugging) are
+**Needs review** (no age/CPU/RSS gate), never safe-to-stop. Interactive browsers
+and helpers are ignored.
 
 #### Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 

@@ -149,16 +149,18 @@ done
 # Sort is primarily by CPU descending; equal CPUs keep a stable listing presence.
 [[ "$output" == *'Needs review'* ]] || fail_test 'review section missing for recognition families'
 
-# Chrome main processes are always reviewed (no age/CPU gate); helpers/wrappers are not.
+# Detached debug browsers are always reviewed (no age/CPU gate); normal Chrome is not.
 printf '%s\n' \
   'developer  330  1  01:22  0.1  217244 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --headless=new' \
   'developer  331  1  01:22  0.0  100000 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper --type=renderer' \
-  'developer  332  1  10:00:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
+  'developer  332  1  10:00:00 90.0 400000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
   'developer  333  1  01:22  0.0  1020 /bin/bash -c /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' \
-  'developer  334  1  01:22  0.0  744 /Applications/Brave Browser.app/Contents/Frameworks/Brave Browser Framework.framework/Versions/1/Helpers/chrome_crashpad_handler --database=/tmp' >"$FAKE_PS_OUTPUT"
+  'developer  334  1  01:22  0.0  744 /Applications/Brave Browser.app/Contents/Frameworks/Brave Browser Framework.framework/Versions/1/Helpers/chrome_crashpad_handler --database=/tmp' \
+  'developer  335  1  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *'pid 330'* && "$output" == *'detached debug browser'* ]] || fail_test 'young idle debug Chrome was not reviewed'
-[[ "$output" == *'pid 332'* && "$output" == *'browser instance'* ]] || fail_test 'main Chrome without flags was not reviewed'
+[[ "$output" == *'pid 335'* ]] || fail_test 'remote-debugging-only Chrome was not reviewed'
+[[ "$output" != *'pid 332'* ]] || fail_test 'normal interactive Chrome was reviewed'
 [[ "$output" != *'pid 331'* ]] || fail_test 'Chrome Helper was reviewed'
 [[ "$output" != *'pid 333'* ]] || fail_test 'bash wrapper mentioning Chrome path was reviewed'
 [[ "$output" != *'pid 334'* ]] || fail_test 'crashpad helper was reviewed'

@@ -144,18 +144,20 @@ format_memory() {
 format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
 normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
 
-# Main browser binaries only. Match command *prefix* (not substring) so wrapper
-# scripts and crashpad helpers that mention the app path are ignored.
-# Always review-only — never safe-to-stop. No age/CPU/RSS gate.
-is_browser_main() {
+# Detached/orphaned test browsers only — not everyday interactive Chrome.
+# Main binary prefix + headless and/or remote-debugging. Never safe-to-stop;
+# always review-only with no age/CPU/RSS gate (leftovers are often idle/young).
+is_detached_browser() {
 	local command_line="$1"
 	[[ "$command_line" == *'Chrome Helper'* || "$command_line" == *'Chromium Helper'* ]] && return 1
 	[[ "$command_line" == *crashpad* || "$command_line" == *'--type='* ]] && return 1
+	# Must look like automation/debug, not a normal user session.
+	[[ "$command_line" == *--remote-debugging-* || "$command_line" == *--headless* ]] || return 1
 	case "$command_line" in
-		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'|'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome '*) return 0 ;;
-		'/Applications/Chromium.app/Contents/MacOS/Chromium'|'/Applications/Chromium.app/Contents/MacOS/Chromium '*) return 0 ;;
-		'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'|'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge '*) return 0 ;;
-		'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'|'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser '*) return 0 ;;
+		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome '*) return 0 ;;
+		'/Applications/Chromium.app/Contents/MacOS/Chromium '*) return 0 ;;
+		'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge '*) return 0 ;;
+		'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser '*) return 0 ;;
 	esac
 	return 1
 }
@@ -168,20 +170,12 @@ browser_display_name() {
 		*) printf 'Chrome' ;;
 	esac
 }
-browser_review_reason() {
-	local command_line="$1"
-	if [[ "$command_line" == *--remote-debugging-* || "$command_line" == *--headless* ]]; then
-		printf 'detached debug browser'
-	else
-		printf 'browser instance'
-	fi
-}
 # Conservative allowlist of developer workloads. Generic java/node/bun/python
 # executables alone never match; wrappers need tool-identifying arguments.
 # name is the basename of the first argv token; command_line is the full command.
 recognized_process() {
 	local name="$1" command_line="$2"
-	is_browser_main "$command_line" && return 0
+	is_detached_browser "$command_line" && return 0
 	# OpenCode: binary name, path, or bun runner with opencode args.
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
@@ -208,7 +202,7 @@ is_review_candidate() {
 }
 # Single-pass ps parse: user filter, age, allowlist, thresholds. CPU is the
 # instantaneous ps %CPU heuristic (acceptable for review-only rows).
-# Browsers are always listed when recognized (no resource gate).
+# Detached debug browsers are always listed (no resource gate).
 collect_reviews() {
 	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
 	local value days hours minutes seconds first reason cpu_int
@@ -228,9 +222,9 @@ collect_reviews() {
 
 		first="${command_line%% *}"
 		name="${first##*/}"
-		if is_browser_main "$command_line"; then
+		if is_detached_browser "$command_line"; then
 			name="$(browser_display_name "$command_line")"
-			reason="$(browser_review_reason "$command_line")"
+			reason="detached debug browser"
 		else
 			recognized_process "$name" "$command_line" || continue
 			is_review_candidate "$age" "$cpu" "$rss" || continue
