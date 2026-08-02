@@ -1,7 +1,10 @@
 # SlopStop
 
-Experimental macOS-only developer workload scanner. The executable is
-`experiments/slopstop/slopstop`.
+Experimental macOS-only developer workload scanner. Not part of the public
+`scripts/` interface or repository release tooling. Everything for this
+experiment lives in this directory.
+
+Executable: `./slopstop` (from this directory).
 
 ## Safe to stop
 
@@ -9,7 +12,7 @@ Only when authoritative idle evidence exists:
 
 | Target | Condition | Stop |
 |---|---|---|
-| Colima | Running, zero containers on its own runtime | `colima stop` |
+| Colima | VM up (`status` is `Running` or omitted — some Colima builds omit it when healthy), zero containers on its own runtime, no k8s/k3s | `colima stop` |
 | Gradle | `gradle --status` shows only IDLE daemons | `gradle --stop` |
 | mvnd | `mvnd --status` shows only IDLE daemons | `mvnd --stop` |
 
@@ -19,19 +22,28 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 
 ## Needs review (never auto-stopped)
 
-- Allowlisted workloads (OpenCode, dev servers, JVM daemons not proven idle, …) with age/CPU/RSS heuristics
-- **Detached debug browsers** (main Chrome/Chromium/Edge/Brave + headless/remote-debugging), no resource gate
-- **Docker Desktop / OrbStack** main app processes when running
-- **qemu / Virtualization** host processes — host `%CPU` is only a weak hint; guest idle is **not** knowable from outside
+- Allowlisted workloads (OpenCode, dev servers, JVM daemons not proven idle, …) with **age/CPU/RSS** gates (see thresholds below)
+- **Detached debug browsers** — main Chrome/Chromium/Edge/Brave binary with headless and/or remote-debugging flags; **no** age/CPU/RSS gate; helpers and interactive sessions ignored
+- **Docker Desktop / OrbStack** — main app binary only (not backends/helpers); **same resource gates** as other allowlisted processes; quiet/young instances are not listed
 
-## QEMU idle?
+### Resource gates (ps heuristic)
 
-**Not authoritatively.** Host low CPU suggests the guest may be quiet, but:
+| Rule | Age | Metric |
+|---|---|---|
+| Elevated CPU | ≥ 8h | `%CPU` ≥ 5 |
+| High CPU (younger) | ≥ 1h | `%CPU` ≥ 20 |
+| High memory | ≥ 8h | RSS ≥ 2 GiB |
 
-- idle guests can still wake the vCPU
-- busy guests almost always show elevated host CPU
-- stopping qemu kills the whole VM without app-level drain
+### Not listed
 
-So qemu is review-only, with wording like “low host CPU (guest idle unknown)”.
+- **Raw qemu / Virtualization.framework host processes** — deliberately excluded. Host CPU is not an authoritative guest-idle signal, and killing them is not a product-level safe stop. Prefer Colima (or similar) for VM lifecycle.
+- Docker/OrbStack helper and backend processes (only the main app binary is considered)
+- Interactive browsers without detached-debug flags
+- System processes and other users’ processes
 
-Run `tests/test-slopstop.sh` for deterministic fixture-based tests.
+## Validation (local to this experiment)
+
+```bash
+./test-slopstop.sh
+shellcheck --severity=warning ./slopstop ./test-slopstop.sh
+```

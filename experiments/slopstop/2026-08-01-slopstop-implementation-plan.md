@@ -14,7 +14,10 @@ It has two result categories:
 1. **SAFE TO STOP** — authoritative evidence shows that no active workload remains and a graceful native stop action exists.
 2. **NEEDS REVIEW** — recognized developer processes are old and consuming meaningful CPU or unusually high memory, but SlopStop cannot safely stop them automatically.
 
-The verified minimal baseline covers deterministic tests, Colima detection and safe stop, compact output, and early review-process scanning. Further work continues with Phase 2 CPU observation and recognition hardening.
+The verified baseline covers deterministic tests, Colima detection and safe stop,
+compact output, review-process scanning via a single `ps` snapshot (not multi-second
+`top`), Gradle/mvnd safe-stop, and gated Docker Desktop/OrbStack review. Raw qemu is
+not listed. Further work continues with Phase 3 (Multipass and other detectors).
 
 ## Progress
 
@@ -25,7 +28,8 @@ Status: Active
 Note: Chunk 7 (repo launch-browser safe-stop) was dropped. Browsers are
 review-only when they look detached/orphaned: main Chrome/Chromium/Edge/Brave
 with `--headless` and/or `--remote-debugging-*`, no resource gate, never
-auto-stopped. Everyday interactive browsers are not listed.
+auto-stopped. Everyday interactive browsers are not listed. Phase 2 uses one
+`ps` snapshot for age/CPU/RSS heuristics; multi-second `top` sampling was abandoned.
 
 ### Phase Checklist
 
@@ -228,7 +232,7 @@ Checklist:
 - [x] (design) Define `SAFE TO STOP` and `NEEDS REVIEW`.
 - [x] (design) Define `--stop` and `--stop-safe`.
 - [x] (design) Choose plain aligned CLI output instead of a TUI.
-- [x] (design) Choose approximately one-second macOS `top` CPU observation.
+- [x] (design) Choose fast `ps`-based CPU/RSS heuristics for review (not multi-second `top`; see Chunk 5 completion note).
 - [x] (design) Choose macOS-first shell implementation.
 - [x] (design) Identify Colima as the first authoritative safe detector.
 - [x] (design) Identify OpenCode, Gradle/JVM tools, dev servers, VMs, and other runtimes as later review or detector work.
@@ -405,7 +409,10 @@ Done criteria:
 
 ### Goal
 
-Add the developer-focused actionable `top` behavior without weakening the safe-stop contract.
+Add developer-focused review-only process detection without weakening the safe-stop
+contract. CPU/RSS/age come from a single fast `ps` snapshot (instantaneous `%CPU`
+heuristic). Multi-second `top` sampling was tried and abandoned as too slow/fragile
+for advisory-only rows.
 
 ### Boundaries
 
@@ -414,17 +421,19 @@ Add the developer-focused actionable `top` behavior without weakening the safe-s
 - No process-tree aggregation initially.
 - No generic “show every high-CPU process.”
 - No automated stopping of review candidates.
+- Do not reintroduce multi-second `top` sampling unless product goals change.
 
 ### Exit Criteria
 
-- Approximately one-second `top` CPU observation works as documented.
-- Recognized old/resource-heavy developer processes are shown.
+- One `ps` snapshot supplies identity, age, RSS, and CPU for review classification.
+- Recognized old/resource-heavy developer processes are shown when thresholds match.
 - System processes and unrelated applications are excluded.
 - OpenCode and representative JVM/dev-server cases are covered by tests.
+- Automated tests stub `ps` and never sleep for sampling.
 
 ### Execution
 
-#### Chunk 5 — Implement one-second CPU observation
+#### Chunk 5 — Implement review CPU/RSS heuristics via `ps`
 
 Status: [x]
 
@@ -436,37 +445,30 @@ Preconditions:
 
 Checklist:
 
-- [x] Confirm the exact supported macOS `top` command and output format.
-- [x] Define the measurement as “busy during sample,” not sustained CPU.
-- [x] Identify recognized candidate PIDs before sampling where practical.
-- [x] Run `top` with an initial baseline and a second sample approximately one second later.
-- [x] Parse only the second sample for measured CPU.
-- [x] Correlate results by PID and enough process identity to reduce PID-reuse errors.
-- [x] Keep CPU sampling independent from safe-resource detection.
-- [x] Show an in-place progress line only on a TTY (`Sampling CPU...` / `Preparing report...` with spinner).
-- [x] Animate the progress line while real sampling and classification run (TTY only).
-- [x] Clear the message before report output.
-- [x] Clear the message on interruption before exiting.
-- [x] Print no progress text for non-TTY output.
-- [x] Stub `top` in tests so tests do not wait.
-- [x] Test CPU below threshold.
-- [x] Test CPU above the normal threshold.
-- [x] Test CPU above the high threshold.
-- [x] Test process disappearance or PID identity change.
-- [x] Test malformed or unavailable `top` output.
-- [x] Test non-TTY execution without sampling text.
-- [ ] Test interruption cleanup where practical.
-- [ ] Manually compare an OpenCode sample with Activity Monitor or interactive `top`.
+- [x] (design) Prefer speed: use instantaneous `ps` `%CPU` / RSS / etime, not multi-second `top`.
+- [x] (design) Describe CPU-triggered rows as elevated CPU (heuristic), not “busy during sample.”
+- [x] (impl) Collect review candidates from one `ps` snapshot shared with process recognition.
+- [x] (impl) Keep review heuristics independent from safe-resource detection (cannot create safe rows).
+- [x] (impl) Show an in-place progress line only on a TTY (`Preparing report...`).
+- [x] (impl) Clear the message before report output and on interruption.
+- [x] (impl) Print no progress text for non-TTY output.
+- [x] (test) Stub `ps` so tests do not wait.
+- [x] (test) Cover CPU below threshold, normal threshold, and high-CPU younger threshold.
+- [x] (test) Cover high-memory path and non-TTY (no progress text).
+- [ ] (test) Interruption cleanup where practical.
+- [ ] (verify) Optional dogfood: compare a real old OpenCode process with Activity Monitor.
 
-Completion note: Chunk 5 originally used multi-second `top` sampling; that was replaced with a fast instantaneous `ps` `%CPU` heuristic because review candidates are advisory only and `top` was too slow/fragile. Details say `elevated CPU` or `high memory developer workload`. Fixtures cover age/CPU/RSS thresholds without waiting.
+Completion note: An early design used multi-second / one-second `top` sampling. That
+approach is **abandoned**. Current behavior is one `ps` snapshot with age/CPU/RSS
+thresholds; detail text is `elevated CPU` or `high memory developer workload`. Fixtures
+cover thresholds without waiting.
 
 Done criteria:
 
-- Review scanning adds an approximately one-second observation.
-- The second `top` sample supplies the measured CPU value.
-- Documentation says “busy during sample.”
-- CPU sampling cannot create a safe candidate.
-- The TTY progress line animates only while real work runs, clears cleanly, and never appears in piped output.
+- Review scanning uses a single `ps` snapshot (no multi-second observation).
+- Instantaneous `%CPU` is documented as a heuristic, not sustained load.
+- Review classification cannot create a safe candidate.
+- The TTY progress line appears only while real work runs, clears cleanly, and never appears in piped output.
 - Automated tests do not sleep.
 
 #### Chunk 6 — Add conservative review-process recognition
@@ -537,7 +539,8 @@ and helpers are ignored.
 
 #### Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 
-Status: [x]
+Status: [x] implementation complete  
+Deferred (not blocking Phase 3): multi-version Gradle fixtures; local Gradle/mvnd dogfood.
 
 Preconditions:
 
@@ -547,23 +550,31 @@ Preconditions:
 Checklist:
 
 - [x] (design) Determine what Gradle native status can authoritatively establish.
-- [x] (design) Account for Gradle version compatibility.
-- [x] (design) Determine `mvnd` native status and stop semantics.
+- [x] (design) Account for Gradle version compatibility (whitelist status parse; fail closed on unknown lines).
+- [x] (design) Determine `mvnd` native status and stop semantics (`PID Uptime Status` as well as Gradle-style tables).
 - [x] (impl) Keep uncertain daemon processes under review.
 - [x] (impl) Promote only authoritatively idle daemons to safe.
 - [x] (impl) Use native graceful stop commands.
-- [ ] (test) Cover compatible/incompatible Gradle versions.
-- [x] (test) Cover idle, busy, unknown, and command-failure states.
-- [ ] (verify) Manually exercise against local Gradle and/or `mvnd` installations when available.
+- [x] (impl) Exclude idle daemon PIDs from the review section.
+- [x] (impl) Docker Desktop / OrbStack main apps: review-only with normal age/CPU/RSS gates (not always-on).
+- [x] (impl) Raw qemu / Virtualization host processes: **omit entirely** (not actionable; not review).
+- [x] (test) Cover idle, busy, unknown, warning-banner, and dual-format status states.
+- [ ] (test) Cover compatible/incompatible Gradle versions (deferred).
+- [ ] (verify) Manually exercise against local Gradle and/or `mvnd` installations when available (deferred).
 
-Completion note: Safe when `gradle --status` / `mvnd --status` show only IDLE (no BUSY). Stop via `gradle --stop` / `mvnd --stop` after revalidation. Idle daemon PIDs excluded from review. Kotlin remains review-only. Also added Docker Desktop/OrbStack and qemu/Virtualization as review-only; qemu host CPU is a weak idle hint only.
+Completion note: Safe when `gradle --status` / `mvnd --status` show only IDLE (no BUSY /
+Busy / unknown). Stop via `gradle --stop` / `mvnd --stop` after revalidation. Idle
+daemon PIDs excluded from review. Kotlin remains review-only. Same chunk delivered
+gated Docker Desktop/OrbStack review rows and **explicit non-listing of raw qemu** —
+do not reintroduce qemu as review-only without a product-level stop path.
 
 Done criteria:
 
 - No active build daemon is classified as safe.
-- Version mismatch does not create false confidence.
+- Unknown/mismatched status lines do not create false confidence (fail closed).
 - Native stop operations are used.
 - Uncertain cases remain review-only.
+- qemu is not listed; container apps use resource gates.
 
 #### Chunk 9 — Multipass
 

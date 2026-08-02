@@ -11,15 +11,13 @@ readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
 readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
 readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
-# Two-column layout: name (12) + gap (2) + details (rest). PID and metrics live in details.
+# Two-column layout: name min width + gap + details. PID/metrics live in details.
 readonly NAME_COLUMN_WIDTH=12
 readonly MIN_DETAIL_WIDTH=20
-# Review CPU uses instantaneous ps %CPU as a fast heuristic (review-only; never
-# used for safe-stop). Prefer speed over a multi-second top sample.
+# Review CPU uses instantaneous ps %CPU as a fast heuristic (review-only).
 
 mode="scan"
 tmp_dir=""
-current_snapshot=""
 current_user=""
 ps_command=""
 sort_command=""
@@ -27,6 +25,8 @@ progress_active=0
 progress_shown_marked=0
 gradle_idle_count=0
 mvnd_idle_count=0
+# Space-padded PID set — no per-row external grep.
+excluded_review_pids=" "
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
 
@@ -46,9 +46,7 @@ cleanup() {
 	[[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"
 }
 trap cleanup EXIT
-# Static TTY status only (no background spinner: killing a job prints
-# "Terminated: 15" and earlier hang bugs). Test hooks:
-#   SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE
+
 mark_progress_shown() {
 	if ((progress_shown_marked == 0)) && [[ -n "${SLOPSTOP_PROGRESS_SHOWN_FILE:-}" ]]; then
 		: >"$SLOPSTOP_PROGRESS_SHOWN_FILE"
@@ -59,7 +57,6 @@ show_scan_progress() {
 	local label="$1"
 	mark_progress_shown
 	[[ -t 1 ]] || return 0
-	# Replace any previous status line in place; no child process.
 	printf '\r\033[2K%s' "$label"
 	progress_active=1
 }
@@ -98,22 +95,17 @@ sort_command="$(command -v sort 2>/dev/null || true)"
 [[ -n "$sort_command" ]] || fail "sort is required"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
-first_snapshot="$tmp_dir/first"
-second_snapshot="$tmp_dir/second"
+process_snapshot="$tmp_dir/processes"
 
 take_snapshot() {
 	local destination="$1"
 	"$ps_command" -axo user= -o pid= -o ppid= -o etime= -o '%cpu=' -o rss= -o command= >"$destination" || fail "could not read the process table"
 }
-take_snapshot "$first_snapshot"
 
-# Fresh ps for review heuristics (no multi-second sample). Progress covers this
-# and classification; clear only when the review report is ready to print.
 collect_and_prepare_reviews() {
 	show_scan_progress "Preparing report..."
-	take_snapshot "$second_snapshot"
-	current_snapshot="$second_snapshot"
-	collect_reviews "$second_snapshot"
+	take_snapshot "$process_snapshot"
+	collect_reviews "$process_snapshot"
 	clear_scan_progress
 }
 
@@ -126,34 +118,30 @@ age_seconds() {
 }
 format_age() {
 	local seconds="$1"
-	if [[ "$seconds" == "—" ]]; then printf '—'; elif ((seconds >= 86400)); then printf '%dd' $((seconds / 86400)); elif ((seconds >= 3600)); then printf '%dh' $((seconds / 3600)); else printf '%dm' $((seconds / 60)); fi
+	if [[ "$seconds" == "—" ]]; then printf '—'
+	elif ((seconds >= 86400)); then printf '%dd' $((seconds / 86400))
+	elif ((seconds >= 3600)); then printf '%dh' $((seconds / 3600))
+	else printf '%dm' $((seconds / 60)); fi
 }
 format_memory() {
 	local kb="$1" tenths
-	if [[ "$kb" == "—" ]]; then
-		printf '—'
+	if [[ "$kb" == "—" ]]; then printf '—'
 	elif ((kb >= 1048576)); then
-		# One decimal place, rounded (matches prior awk %.1f).
 		tenths=$(( (kb * 10 + 524288) / 1048576 ))
 		printf '%d.%d GB' $((tenths / 10)) $((tenths % 10))
 	elif ((kb >= 1024)); then
-		# Rounded whole MB (matches prior awk %.0f).
 		printf '%d MB' $(( (kb + 512) / 1024 ))
 	else
 		printf '%d KB' "$kb"
 	fi
 }
 format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
-normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
 
-# Detached/orphaned test browsers only — not everyday interactive Chrome.
-# Main binary prefix + headless and/or remote-debugging. Never safe-to-stop;
-# always review-only with no age/CPU/RSS gate (leftovers are often idle/young).
+# Detached debug browsers only (main binary + headless/remote-debugging).
 is_detached_browser() {
 	local command_line="$1"
 	[[ "$command_line" == *'Chrome Helper'* || "$command_line" == *'Chromium Helper'* ]] && return 1
 	[[ "$command_line" == *crashpad* || "$command_line" == *'--type='* ]] && return 1
-	# Must look like automation/debug, not a normal user session.
 	[[ "$command_line" == *--remote-debugging-* || "$command_line" == *--headless* ]] || return 1
 	case "$command_line" in
 		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome '*) return 0 ;;
@@ -172,16 +160,14 @@ browser_display_name() {
 		*) printf 'Chrome' ;;
 	esac
 }
-# Docker Desktop / OrbStack app or backend — review only, never safe-stop.
+
+# One main app binary each; normal resource gates apply (not "always on").
 is_container_app_review() {
 	local command_line="$1"
 	[[ "$command_line" == *'--type='* || "$command_line" == *Helper* || "$command_line" == *crashpad* ]] && return 1
 	case "$command_line" in
 		'/Applications/Docker.app/Contents/MacOS/Docker Desktop'|'/Applications/Docker.app/Contents/MacOS/Docker Desktop '*) return 0 ;;
-		'/Applications/Docker.app/Contents/MacOS/Docker'|'/Applications/Docker.app/Contents/MacOS/Docker '*) return 0 ;;
-		*'/Docker Desktop.app/Contents/MacOS/Docker Desktop'*) return 0 ;;
 		'/Applications/OrbStack.app/Contents/MacOS/OrbStack'|'/Applications/OrbStack.app/Contents/MacOS/OrbStack '*) return 0 ;;
-		*'/com.docker.backend'*|*/com.docker.backend) return 0 ;;
 	esac
 	return 1
 }
@@ -192,36 +178,19 @@ container_app_display_name() {
 		*) printf 'Docker Desktop' ;;
 	esac
 }
-# Host qemu/Virtualization processes. Host %CPU is only a weak idle hint —
-# guest activity is not visible authoritatively from outside the VM.
-is_qemu_vm_process() {
-	local name="$1" command_line="$2"
-	[[ "$command_line" == *crashpad* || "$command_line" == *'--type='* ]] && return 1
-	[[ "$name" == qemu-system-* || "$name" == qemu-* ]] && return 0
-	[[ "$command_line" == *qemu-system-* ]] && return 0
-	[[ "$command_line" == *'com.apple.Virtualization.VirtualMachine'* ]] && return 0
-	return 1
-}
-# Conservative allowlist of developer workloads. Generic java/node/bun/python
-# executables alone never match; wrappers need tool-identifying arguments.
-# name is the basename of the first argv token; command_line is the full command.
+
+# Raw qemu/Virtualization is intentionally not listed (not actionable).
 recognized_process() {
 	local name="$1" command_line="$2"
 	is_detached_browser "$command_line" && return 0
 	is_container_app_review "$command_line" && return 0
-	is_qemu_vm_process "$name" "$command_line" && return 0
-	# OpenCode: binary name, path, or bun runner with opencode args.
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
 		opencode:*|*:*bun*opencode*) return 0 ;;
-		# JVM build daemons (not arbitrary java/Maven apps).
 		java:*GradleDaemon*|java:*org.gradle.launcher.daemon*|java:*gradle*daemon*|java:*KotlinCompileDaemon*|java:*kotlin-daemon*|java:*org.jetbrains.kotlin.daemon*|java:*mvnd*|java:*maven.daemon*) return 0 ;;
 		mvnd:*|gradle:*|kotlin-daemon:*) return 0 ;;
-		# Dev servers by executable basename.
 		vite:*|next:*|next-server:*|webpack:*|webpack-dev-server:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
-		# node/bun only when argv clearly names a known dev tool.
 		node:*vite*|node:*next*|node:*webpack*|node:*nodemon*|bun:*vite*|bun:*next*|bun:*webpack*|bun:*nodemon*) return 0 ;;
-		# Language tool runners with explicit subcommands.
 		python:*'-m http.server'*|python3:*'-m http.server'*|*:*'python -m http.server'*|*:*'python3 -m http.server'*) return 0 ;;
 		*:*'go run '*|*:*'cargo watch'*|cargo:*watch*) return 0 ;;
 	esac
@@ -235,15 +204,12 @@ is_review_candidate() {
 	return 1
 }
 exclude_review_pid() {
-	printf '%s\n' "$1" >>"$tmp_dir/excluded_review_pids"
+	excluded_review_pids+=" $1 "
 }
 is_excluded_review_pid() {
-	[[ -f "$tmp_dir/excluded_review_pids" ]] || return 1
-	grep -qxF "$1" "$tmp_dir/excluded_review_pids" 2>/dev/null
+	[[ "$excluded_review_pids" == *" $1 "* ]]
 }
-# Single-pass ps parse: user filter, age, allowlist, thresholds. CPU is the
-# instantaneous ps %CPU heuristic (acceptable for review-only rows).
-# Detached browsers, container apps, and VMs use special listing rules.
+
 collect_reviews() {
 	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
 	local value days hours minutes seconds first reason cpu_int
@@ -268,17 +234,9 @@ collect_reviews() {
 			name="$(browser_display_name "$command_line")"
 			reason="detached debug browser"
 		elif is_container_app_review "$command_line"; then
+			is_review_candidate "$age" "$cpu" "$rss" || continue
 			name="$(container_app_display_name "$command_line")"
-			reason="container runtime (review only)"
-		elif is_qemu_vm_process "$name" "$command_line"; then
-			cpu_int="${cpu%.*}"
-			name="qemu"
-			[[ "$command_line" == *Virtualization* ]] && name="Virtualization"
-			if ((cpu_int < REVIEW_CPU_PERCENT)); then
-				reason="VM host process; low host CPU (guest idle unknown)"
-			else
-				reason="VM host process; elevated host CPU (guest may be busy)"
-			fi
+			reason="container runtime"
 		else
 			recognized_process "$name" "$command_line" || continue
 			is_review_candidate "$age" "$cpu" "$rss" || continue
@@ -308,10 +266,16 @@ add_safe() {
 	safe_kind+=("$1"); safe_name+=("$2"); safe_age+=("$3"); safe_cpu+=("$4"); safe_memory+=("$5"); safe_details+=("$6"); safe_id+=("$7")
 }
 
-# Pure check: Colima is running with zero active containers on its own runtime.
-# Returns 0 when safe to stop, 1 otherwise. Does not mutate report arrays.
+# Colima: empty/zero containers on its own runtime; refuse k8s.
+# Status field: accept Running, or omit entirely. Some Colima versions leave
+# status out of successful `status --json` while the VM is up; requiring
+# status==Running would silently drop the primary detector on those builds.
+# Explicit non-Running values (Stopped, Starting, …) remain unsafe.
+# Safety still requires a successful status query, known runtime, and a
+# successful empty container listing (k8s.io must succeed and be empty for containerd).
 colima_still_safe() {
 	local colima status_json status runtime profile context runtime_command containers
+	local k8s_containers
 	colima="$(command -v colima 2>/dev/null || true)"; [[ -n "$colima" ]] || return 1
 	status_json="$("$colima" status --json 2>/dev/null)" || return 1
 	status_json="$(tr -d '[:space:]' <<<"$status_json")"
@@ -321,6 +285,9 @@ colima_still_safe() {
 	profile="$(sed -n 's/.*"profile"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' <<<"$status_json")"
 	[[ -n "$profile" ]] || profile="default"
 	if [[ "$profile" == default ]]; then context="colima"; else context="colima-$profile"; fi
+	if [[ "$status_json" == *'"kubernetes":true'* || "$status_json" == *'"kubernetes":'*'true'* || "$runtime" == *k3s* || "$runtime" == *+k3s* ]]; then
+		return 1
+	fi
 	case "$runtime" in
 		docker) runtime_command="$(command -v docker 2>/dev/null || true)" ;;
 		containerd) runtime_command="$(command -v nerdctl 2>/dev/null || true)" ;;
@@ -328,11 +295,12 @@ colima_still_safe() {
 	esac
 	[[ -n "$runtime_command" ]] || return 1
 	if [[ "$runtime" == docker ]]; then
-		# Never use the globally selected Docker context: it may point at a
-		# different daemon while Colima is idle.
 		containers="$("$runtime_command" --context "$context" ps -q 2>/dev/null)" || return 1
 	else
 		containers="$("$runtime_command" --address "unix://${HOME:-}/.colima/${profile}/containerd.sock" ps -q 2>/dev/null)" || return 1
+		# Query must succeed; failure is not "empty".
+		k8s_containers="$("$runtime_command" --address "unix://${HOME:-}/.colima/${profile}/containerd.sock" --namespace k8s.io ps -q 2>/dev/null)" || return 1
+		[[ -z "$k8s_containers" ]] || return 1
 	fi
 	[[ -z "$containers" ]] || return 1
 	return 0
@@ -342,32 +310,52 @@ detect_colima() {
 	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
 }
 
-# Parse `gradle --status` / `mvnd --status`-style lines: PID then IDLE|BUSY.
-# Prints idle count on stdout; writes idle PIDs to $1; returns 0 if safe to stop
-# (idle > 0 and busy == 0).
+daemon_status_kind() {
+	case "$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]')" in
+		IDLE) printf 'idle' ;;
+		BUSY) printf 'busy' ;;
+		STOPPED|STOPPING) printf 'stopped' ;;
+		*) printf '' ;;
+	esac
+}
+
+# Whitelist-only status parser. Gradle: PID STATUS [INFO]. mvnd: PID Uptime Status.
 daemon_status_is_all_idle() {
 	local status_out="$1" idle_pids_file="$2"
-	local line pid st idle=0 busy=0
+	local line pid a b kind idle=0 busy=0 unknown=0
 	: >"$idle_pids_file"
 	while IFS= read -r line || [[ -n "$line" ]]; do
-		[[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+([A-Za-z]+) ]] || continue
-		pid="${BASH_REMATCH[1]}"
-		st="${BASH_REMATCH[2]}"
-		case "$(printf '%s' "$st" | tr '[:lower:]' '[:upper:]')" in
-			IDLE)
-				idle=$((idle + 1))
-				printf '%s\n' "$pid" >>"$idle_pids_file"
-				;;
-			BUSY) busy=$((busy + 1)) ;;
-		esac
+		[[ -n "${line// }" ]] || continue
+		[[ "$line" =~ ^[[:space:]]*PID[[:space:]]+STATUS([[:space:]]|$) ]] && continue
+		[[ "$line" =~ ^[[:space:]]*PID[[:space:]]+Uptime[[:space:]]+Status([[:space:]]|$) ]] && continue
+		[[ "$line" =~ ^[Nn]o[[:space:]].*[Rr]unning\.?$ ]] && continue
+		[[ "$line" =~ ^[Nn]o[[:space:]]+[Dd]aemons([[:space:]]|$) ]] && continue
+		if [[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+([^[:space:]]+)([[:space:]]+([^[:space:]]+))? ]]; then
+			pid="${BASH_REMATCH[1]}"
+			a="${BASH_REMATCH[2]}"
+			b="${BASH_REMATCH[4]:-}"
+			kind="$(daemon_status_kind "$a")"
+			if [[ -z "$kind" && -n "$b" ]]; then
+				kind="$(daemon_status_kind "$b")"
+			fi
+			case "$kind" in
+				idle)
+					idle=$((idle + 1))
+					printf '%s\n' "$pid" >>"$idle_pids_file"
+					;;
+				busy) busy=$((busy + 1)) ;;
+				stopped) ;;
+				*) unknown=$((unknown + 1)) ;;
+			esac
+		else
+			unknown=$((unknown + 1))
+		fi
 	done <<<"$status_out"
-	((idle > 0 && busy == 0)) || return 1
+	((idle > 0 && busy == 0 && unknown == 0)) || return 1
 	printf '%s\n' "$idle"
 	return 0
 }
 
-# Pure: Gradle reports only IDLE daemons (same Gradle major on PATH). Not safe
-# if any BUSY or if status cannot be read.
 gradle_still_safe() {
 	local gradle status_out idle_n
 	gradle="$(command -v gradle 2>/dev/null || true)"
@@ -406,8 +394,16 @@ detect_mvnd() {
 	add_safe "mvnd" "mvnd" "—" "—" "—" "${mvnd_idle_count} idle daemon(s); mvnd --stop" "mvnd"
 }
 
-truncate_detail() { local value="$1" max="$2"; if ((max < 1)); then printf ''; elif ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
-# Join non-empty fields with " · ". Skip placeholder em dashes from missing metrics.
+truncate_detail() {
+	local value="$1" max="$2"
+	if ((max < 1)); then printf ''
+	elif ((${#value} > max)); then
+		if ((max <= 3)); then printf '%s' "${value:0:max}"
+		else printf '%s...' "${value:0:max-3}"
+		fi
+	else printf '%s' "$value"
+	fi
+}
 join_detail_parts() {
 	local out="" part
 	for part in "$@"; do
@@ -416,7 +412,6 @@ join_detail_parts() {
 	done
 	printf '%s' "$out"
 }
-# PID (when numeric) plus age/cpu/memory/reason for a single details cell.
 format_entry_detail() {
 	local pid="$1" age="$2" cpu="$3" memory="$4" reason="$5"
 	local pid_part=""
@@ -449,60 +444,49 @@ terminal_width() {
 	fi
 	printf '80'
 }
-detail_column_width() {
-	local width="$1" detail_width
-	detail_width=$((width - NAME_COLUMN_WIDTH - 2))
-	((detail_width < 8)) && detail_width=8
-	printf '%s\n' "$detail_width"
-}
-# Narrow terminals: name on one line, details indented under it.
-needs_stacked_layout() {
-	local width="$1"
-	((width - NAME_COLUMN_WIDTH - 2 < MIN_DETAIL_WIDTH))
-}
+
 print_name_detail_row() {
-	local name="$1" detail="$2" detail_width="$3" stacked="$4"
-	if ((stacked)); then
-		printf '%s\n' "$name"
-		printf '  %s\n' "$(truncate_detail "$detail" "$detail_width")"
+	local name="$1" detail="$2" term_width="$3"
+	local name_w=${#name} detail_w stacked_detail_w name_max
+	((name_w < NAME_COLUMN_WIDTH)) && name_w=$NAME_COLUMN_WIDTH
+	detail_w=$((term_width - name_w - 2))
+	if ((detail_w < MIN_DETAIL_WIDTH)); then
+		name_max=$term_width
+		((name_max < 1)) && name_max=1
+		stacked_detail_w=$((term_width - 2))
+		((stacked_detail_w < 8)) && stacked_detail_w=8
+		printf '%s\n' "$(truncate_detail "$name" "$name_max")"
+		printf '  %s\n' "$(truncate_detail "$detail" "$stacked_detail_w")"
 	else
-		printf '%-*s  %s\n' "$NAME_COLUMN_WIDTH" "$name" "$(truncate_detail "$detail" "$detail_width")"
+		printf '%-*s  %s\n' "$name_w" "$name" "$(truncate_detail "$detail" "$detail_w")"
 	fi
 }
 print_safe_section() {
-	local width detail_width stacked=0 i detail safe_pid
+	local width i detail safe_pid header
 	width="$(terminal_width)"
-	if needs_stacked_layout "$width"; then
-		stacked=1
-		# Indented detail can use nearly the full terminal width.
-		detail_width=$((width - 2))
-		((detail_width < 8)) && detail_width=8
-	else
-		detail_width="$(detail_column_width "$width")"
-	fi
-	printf 'SlopStop\n\nSafe to stop\n'
+	printf 'SlopStop\n\n'
 	if ((${#safe_name[@]} == 0)); then
-		printf '(none)\n\n'
+		printf 'Safe to stop\n(none)\n\n'
 		return
+	fi
+	header='Safe to stop (use --stop-safe to stop without prompting)'
+	if ((${#header} > width)); then
+		printf 'Safe to stop\n'
+		printf '  %s\n' "$(truncate_detail 'use --stop-safe to stop without prompting' $((width > 2 ? width - 2 : width)))"
+	else
+		printf '%s\n' "$header"
 	fi
 	for ((i = 0; i < ${#safe_name[@]}; i++)); do
 		safe_pid="${safe_id[i]}"
-		[[ "$safe_pid" == colima ]] && safe_pid=""
+		[[ "$safe_pid" == colima || "$safe_pid" == gradle || "$safe_pid" == mvnd ]] && safe_pid=""
 		detail="$(format_entry_detail "$safe_pid" "${safe_age[i]}" "${safe_cpu[i]}" "${safe_memory[i]}" "${safe_details[i]}")"
-		print_name_detail_row "${safe_name[i]}" "$detail" "$detail_width" "$stacked"
+		print_name_detail_row "${safe_name[i]}" "$detail" "$width"
 	done
 	printf '\n'
 }
 print_review_section() {
-	local width detail_width stacked=0 i detail
+	local width i detail
 	width="$(terminal_width)"
-	if needs_stacked_layout "$width"; then
-		stacked=1
-		detail_width=$((width - 2))
-		((detail_width < 8)) && detail_width=8
-	else
-		detail_width="$(detail_column_width "$width")"
-	fi
 	printf 'Needs review\n'
 	if ((${#review_pid[@]} == 0)); then
 		printf '(none)\n'
@@ -510,22 +494,16 @@ print_review_section() {
 	fi
 	for ((i = 0; i < ${#review_pid[@]}; i++)); do
 		detail="$(format_entry_detail "${review_pid[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "${review_details[i]}")"
-		print_name_detail_row "${review_name[i]}" "$detail" "$detail_width" "$stacked"
+		print_name_detail_row "${review_name[i]}" "$detail" "$width"
 	done
 	printf '\n'
 }
-# Stop-mode instructions live in --help; keep scan output free of long footers.
 print_footer() { :; }
-# Revalidation is pure: never append to safe_* report arrays.
-revalidate_colima() {
-	colima_still_safe
-}
-revalidate_gradle() {
-	gradle_still_safe
-}
-revalidate_mvnd() {
-	mvnd_still_safe
-}
+
+revalidate_colima() { colima_still_safe; }
+revalidate_gradle() { gradle_still_safe; }
+revalidate_mvnd() { mvnd_still_safe; }
+
 stop_safe_candidates() {
 	local i status=0 answer candidate_count="${#safe_name[@]}"
 	local colima_bin gradle_bin mvnd_bin
@@ -566,8 +544,7 @@ stop_safe_candidates() {
 	return "$status"
 }
 
-: >"$tmp_dir/excluded_review_pids"
-current_snapshot="$first_snapshot"
+excluded_review_pids=" "
 detect_colima
 detect_gradle
 detect_mvnd
