@@ -11,12 +11,9 @@ readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
 readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
 readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
-# Width of the fixed columns before DETAILS:
-#   "%-7s %-12s %5s %7s %9s  " → 7+1+12+1+5+1+7+1+9+2 = 46
-readonly NORMAL_TABLE_FIXED_WIDTH=46
-# Prefer the table whenever there is at least this much room for DETAILS.
-# Narrower terminals use the multi-line compact layout instead.
-readonly MIN_NORMAL_DETAIL_WIDTH=25
+# Two-column layout: name (12) + gap (2) + details (rest). PID and metrics live in details.
+readonly NAME_COLUMN_WIDTH=12
+readonly MIN_DETAIL_WIDTH=20
 # Review CPU uses instantaneous ps %CPU as a fast heuristic (review-only; never
 # used for safe-stop). Prefer speed over a multi-second top sample.
 
@@ -26,9 +23,7 @@ current_snapshot=""
 current_user=""
 ps_command=""
 sort_command=""
-sleep_bin=""
 progress_active=0
-progress_pid=""
 progress_shown_marked=0
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
@@ -44,28 +39,14 @@ usage() {
 		"Review candidates are never stopped automatically."
 }
 fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
-stop_progress_spinner() {
-	if [[ -n "${progress_pid:-}" ]]; then
-		kill "$progress_pid" 2>/dev/null || true
-		local _i
-		for ((_i = 0; _i < 20; _i++)); do
-			kill -0 "$progress_pid" 2>/dev/null || break
-			"$sleep_bin" 0.05 2>/dev/null || true
-		done
-		if kill -0 "$progress_pid" 2>/dev/null; then
-			kill -KILL "$progress_pid" 2>/dev/null || true
-		fi
-		wait "$progress_pid" 2>/dev/null || true
-		progress_pid=""
-	fi
-}
 cleanup() {
-	stop_progress_spinner
+	clear_scan_progress
 	[[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"
 }
 trap cleanup EXIT
-# TTY progress while the process table is scanned and the report is built.
-# Test hooks: SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE
+# Static TTY status only (no background spinner: killing a job prints
+# "Terminated: 15" and earlier hang bugs). Test hooks:
+#   SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE
 mark_progress_shown() {
 	if ((progress_shown_marked == 0)) && [[ -n "${SLOPSTOP_PROGRESS_SHOWN_FILE:-}" ]]; then
 		: >"$SLOPSTOP_PROGRESS_SHOWN_FILE"
@@ -76,21 +57,11 @@ show_scan_progress() {
 	local label="$1"
 	mark_progress_shown
 	[[ -t 1 ]] || return 0
-	stop_progress_spinner
+	# Replace any previous status line in place; no child process.
+	printf '\r\033[2K%s' "$label"
 	progress_active=1
-	(
-		trap '' INT
-		local frames=('|' '/' '-' '\') i=0
-		while true; do
-			printf '\r\033[2K%s %s' "$label" "${frames[i]}"
-			i=$(((i + 1) % 4))
-			"$sleep_bin" 0.1 2>/dev/null || "$sleep_bin" 1
-		done
-	) &
-	progress_pid=$!
 }
 clear_scan_progress() {
-	stop_progress_spinner
 	if ((progress_active)); then
 		printf '\r\033[2K'
 		progress_active=0
@@ -123,8 +94,6 @@ ps_command="$(command -v ps 2>/dev/null || true)"
 [[ -n "$ps_command" ]] || fail "ps is required"
 sort_command="$(command -v sort 2>/dev/null || true)"
 [[ -n "$sort_command" ]] || fail "sort is required"
-sleep_bin="$(command -v sleep 2>/dev/null || true)"
-[[ -n "$sleep_bin" ]] || sleep_bin="/bin/sleep"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
 first_snapshot="$tmp_dir/first"
@@ -316,13 +285,28 @@ detect_browser() {
 }
 
 truncate_detail() { local value="$1" max="$2"; if ((max < 1)); then printf ''; elif ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
+# Join non-empty fields with " · ". Skip placeholder em dashes from missing metrics.
+join_detail_parts() {
+	local out="" part
+	for part in "$@"; do
+		[[ -n "$part" && "$part" != "—" ]] || continue
+		if [[ -z "$out" ]]; then out="$part"; else out="$out · $part"; fi
+	done
+	printf '%s' "$out"
+}
+# PID (when numeric) plus age/cpu/memory/reason for a single details cell.
+format_entry_detail() {
+	local pid="$1" age="$2" cpu="$3" memory="$4" reason="$5"
+	local pid_part=""
+	if [[ "$pid" =~ ^[0-9]+$ ]]; then pid_part="pid $pid"; fi
+	join_detail_parts "$pid_part" "$age" "$cpu" "$memory" "$reason"
+}
 terminal_width() {
 	local cols=""
 	if [[ -n "${SLOPSTOP_WIDTH:-}" ]]; then
 		printf '%s' "$SLOPSTOP_WIDTH"
 		return
 	fi
-	# Prefer a positive COLUMNS (some hosts export COLUMNS=0 when unset-ish).
 	if [[ -n "${COLUMNS:-}" && "$COLUMNS" =~ ^[1-9][0-9]*$ ]]; then
 		printf '%s' "$COLUMNS"
 		return
@@ -335,7 +319,6 @@ terminal_width() {
 				return
 			fi
 		fi
-		# stty reads the tty size even when COLUMNS is stale.
 		cols="$(stty size 2>/dev/null | awk '{print $2}' || true)"
 		if [[ -n "$cols" && "$cols" =~ ^[1-9][0-9]*$ ]]; then
 			printf '%s' "$cols"
@@ -344,66 +327,69 @@ terminal_width() {
 	fi
 	printf '80'
 }
-normal_table_detail_width() {
+detail_column_width() {
 	local width="$1" detail_width
-	detail_width=$((width - NORMAL_TABLE_FIXED_WIDTH))
-	((detail_width < 1)) && detail_width=1
+	detail_width=$((width - NAME_COLUMN_WIDTH - 2))
+	((detail_width < 8)) && detail_width=8
 	printf '%s\n' "$detail_width"
 }
-# Compact layout is only for truly narrow terminals. On wider ones, keep the
-# table and truncate DETAILS (never the identity/metrics columns).
-normal_table_needs_compact() {
-	local width="$1" detail_width
-	detail_width=$((width - NORMAL_TABLE_FIXED_WIDTH))
-	((detail_width < MIN_NORMAL_DETAIL_WIDTH))
+# Narrow terminals: name on one line, details indented under it.
+needs_stacked_layout() {
+	local width="$1"
+	((width - NAME_COLUMN_WIDTH - 2 < MIN_DETAIL_WIDTH))
 }
-print_compact_safe_section() {
-	local width="$1" detail_width=$((width - 2)) i safe_pid
-	((detail_width < 8)) && detail_width=8
-	printf 'SlopStop — developer workload scan\n\nSAFE TO STOP\n'
-	if ((${#safe_name[@]} == 0)); then printf 'None.\n'; return; fi
-	for ((i=0; i<${#safe_name[@]}; i++)); do
-		safe_pid="${safe_id[i]}"; [[ "$safe_pid" == colima ]] && safe_pid="—"
-		printf '%s\n' "- ${safe_name[i]}"
-		printf '  PID: %s  AGE: %s  CPU: %s  MEMORY: %s\n' "$safe_pid" "${safe_age[i]}" "${safe_cpu[i]}" "${safe_memory[i]}"
-		printf '  %s\n' "$(truncate_detail "${safe_details[i]}" "$detail_width")"
-	done
-	printf '\n'
+print_name_detail_row() {
+	local name="$1" detail="$2" detail_width="$3" stacked="$4"
+	if ((stacked)); then
+		printf '%s\n' "$name"
+		printf '  %s\n' "$(truncate_detail "$detail" "$detail_width")"
+	else
+		printf '%-*s  %s\n' "$NAME_COLUMN_WIDTH" "$name" "$(truncate_detail "$detail" "$detail_width")"
+	fi
 }
 print_safe_section() {
-	local width safe_detail_width i safe_pid
+	local width detail_width stacked=0 i detail safe_pid
 	width="$(terminal_width)"
-	if normal_table_needs_compact "$width"; then print_compact_safe_section "$width"; return; fi
-	safe_detail_width="$(normal_table_detail_width "$width")"
-	printf 'SlopStop — developer workload scan\n\nSAFE TO STOP\n'
-	if ((${#safe_name[@]} == 0)); then printf 'None.\n'; else
-		printf '%-7s %-12s %5s %7s %9s  %s\n' PID TYPE AGE CPU MEMORY DETAILS
-		for ((i=0; i<${#safe_name[@]}; i++)); do safe_pid="${safe_id[i]}"; [[ "$safe_pid" == colima ]] && safe_pid="—"; printf '%-7s %-12s %5s %7s %9s  %s\n' "$safe_pid" "${safe_name[i]}" "${safe_age[i]}" "${safe_cpu[i]}" "${safe_memory[i]}" "$(truncate_detail "${safe_details[i]}" "$safe_detail_width")"; done
+	if needs_stacked_layout "$width"; then
+		stacked=1
+		# Indented detail can use nearly the full terminal width.
+		detail_width=$((width - 2))
+		((detail_width < 8)) && detail_width=8
+	else
+		detail_width="$(detail_column_width "$width")"
 	fi
-	printf '\n'
-}
-print_compact_review_section() {
-	local width="$1" detail_width=$((width - 2)) i
-	((detail_width < 8)) && detail_width=8
-	printf 'NEEDS REVIEW\n'
-	if ((${#review_pid[@]} == 0)); then printf 'None.\n\n'; return; fi
-	for ((i=0; i<${#review_pid[@]}; i++)); do
-		printf '%s\n' "- ${review_name[i]}"
-		printf '  PID: %s  AGE: %s  CPU: %s  MEMORY: %s\n' "${review_pid[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}"
-		printf '  %s\n' "$(truncate_detail "${review_details[i]}" "$detail_width")"
+	printf 'SlopStop\n\nSafe to stop\n'
+	if ((${#safe_name[@]} == 0)); then
+		printf '(none)\n\n'
+		return
+	fi
+	for ((i = 0; i < ${#safe_name[@]}; i++)); do
+		safe_pid="${safe_id[i]}"
+		[[ "$safe_pid" == colima ]] && safe_pid=""
+		detail="$(format_entry_detail "$safe_pid" "${safe_age[i]}" "${safe_cpu[i]}" "${safe_memory[i]}" "${safe_details[i]}")"
+		print_name_detail_row "${safe_name[i]}" "$detail" "$detail_width" "$stacked"
 	done
 	printf '\n'
 }
 print_review_section() {
-	local width review_detail_width i
+	local width detail_width stacked=0 i detail
 	width="$(terminal_width)"
-	if normal_table_needs_compact "$width"; then print_compact_review_section "$width"; return; fi
-	review_detail_width="$(normal_table_detail_width "$width")"
-	printf 'NEEDS REVIEW\n'
-	if ((${#review_pid[@]} == 0)); then printf 'None.\n'; else
-		printf '%-7s %-12s %5s %7s %9s  %s\n' PID PROCESS AGE CPU MEMORY DETAILS
-		for ((i=0; i<${#review_pid[@]}; i++)); do printf '%-7s %-12s %5s %7s %9s  %s\n' "${review_pid[i]}" "${review_name[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "$(truncate_detail "${review_details[i]}" "$review_detail_width")"; done
+	if needs_stacked_layout "$width"; then
+		stacked=1
+		detail_width=$((width - 2))
+		((detail_width < 8)) && detail_width=8
+	else
+		detail_width="$(detail_column_width "$width")"
 	fi
+	printf 'Needs review\n'
+	if ((${#review_pid[@]} == 0)); then
+		printf '(none)\n'
+		return
+	fi
+	for ((i = 0; i < ${#review_pid[@]}; i++)); do
+		detail="$(format_entry_detail "${review_pid[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "${review_details[i]}")"
+		print_name_detail_row "${review_name[i]}" "$detail" "$detail_width" "$stacked"
+	done
 	printf '\n'
 }
 # Stop-mode instructions live in --help; keep scan output free of long footers.

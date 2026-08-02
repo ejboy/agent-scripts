@@ -34,39 +34,30 @@ printf '%s\n' \
   'developer  101  1  1-00:00:00  1.0  200000 /usr/local/bin/node /project with spaces/vite --host' \
   'other      102  1  2-00:00:00 50.0 400000 /usr/bin/kernel_task' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" == *'SAFE TO STOP'* && "$output" == *'Colima'* ]] || fail_test 'empty Colima was not safe'
+[[ "$output" == *'Safe to stop'* && "$output" == *'Colima'* ]] || fail_test 'empty Colima was not safe'
+[[ "$output" == *'Running; no active containers'* ]] || fail_test 'Colima reason missing'
 [[ "$output" != *'vite'* ]] || fail_test 'young process was reviewed'
 [[ "$output" != *'Potential reclaim: unknown'* ]] || fail_test 'fake reclaim value was printed'
+[[ "$output" != *'SAFE TO STOP'* && "$output" != *'NEEDS REVIEW'* ]] || fail_test 'ALL CAPS section headers still present'
+[[ "$output" != *'None.'* ]] || fail_test 'old None. empty marker still present'
 
-narrow_output="$(SLOPSTOP_WIDTH=60 run_scan)"
-[[ "$narrow_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test 'narrow safe layout was not used'
-[[ "$narrow_output" == *$'PID: —  AGE: —  CPU: —  MEMORY: —'* ]] || fail_test 'narrow safe fields were missing'
-if awk 'length($0) > 60 { exit 1 }' <<<"$narrow_output"; then :; else fail_test 'narrow output overflowed'; fi
+# Stacked layout when detail room is tight (width < 12+2+20 = 34).
+narrow_output="$(SLOPSTOP_WIDTH=33 run_scan)"
+[[ "$narrow_output" == *$'\nColima\n'* ]] || fail_test 'narrow layout did not stack Colima'
 [[ "$narrow_output" == *'Running; no active containers'* ]] || fail_test 'narrow layout truncated the safety reason'
+if awk 'length($0) > 33 { exit 1 }' <<<"$narrow_output"; then :; else fail_test 'narrow output overflowed'; fi
 
-# Compact only when fixed columns leave fewer than 25 columns for DETAILS
-# (width < 46+25 = 71). Typical 80-column and wider widths use the table;
-# DETAILS may truncate only when the terminal is tight (plan: truncate details first).
-for width in 70; do
+# Wide enough for single-line name + detail rows.
+for width in 80 100 120; do
 	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
-	[[ "$boundary_output" == *$'SAFE TO STOP\n- Colima'* ]] || fail_test "width $width did not use compact layout"
-	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"
-done
-for width in 71 80; do
-	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
-	[[ "$boundary_output" == *'PID     TYPE'* ]] || fail_test "width $width did not use the normal table"
-done
-# Colima reason is 29 chars; full text fits when detail width >= 29 → terminal >= 75.
-for width in 80 89 90 120; do
-	boundary_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
-	[[ "$boundary_output" == *'PID     TYPE'* ]] || fail_test "width $width did not use the normal table"
-	[[ "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width truncated the safety reason"
+	[[ "$boundary_output" == *'Colima'* && "$boundary_output" == *'Running; no active containers'* ]] || fail_test "width $width missing Colima row"
+	[[ "$boundary_output" != *$'\nColima\n  '* ]] || fail_test "width $width used stacked layout unexpectedly"
 done
 
 # A stopped Colima instance is omitted.
 printf '%s\n' '{"status":"Stopped","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
 output="$(run_scan)"
-[[ "$output" == *$'SAFE TO STOP\nNone.'* ]] || fail_test 'stopped Colima was reported safe'
+[[ "$output" == *$'Safe to stop\n(none)'* ]] || fail_test 'stopped Colima was reported safe'
 printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
 
 # Platform rejection must happen before any detector can run.
@@ -82,7 +73,7 @@ output="$(run_scan)"
 [[ "$output" != *'Running; no active containers'* ]] || fail_test 'active Colima container was safe'
 : >"$FAKE_CONTAINERS"
 output="$(FAKE_DOCKER_FAILURE=1 run_scan)"
-[[ "$output" == *$'SAFE TO STOP\nNone.'* ]] || fail_test 'runtime query failure was reported safe'
+[[ "$output" == *$'Safe to stop\n(none)'* ]] || fail_test 'runtime query failure was reported safe'
 unset FAKE_DOCKER_FAILURE
 
 printf '%s\n' '{"status":"Running","runtime":"containerd","profile":"default"}' >"$FAKE_COLIMA_STATUS"
@@ -90,17 +81,17 @@ output="$(run_scan)"
 [[ "$output" == *'Colima'* && "$output" == *'Running; no active containers'* ]] || fail_test 'containerd Colima was not queried'
 printf '%s\n' '{"status":"Running","runtime":"unknown"}' >"$FAKE_COLIMA_STATUS"
 output="$(run_scan)"
-[[ "$output" == *$'SAFE TO STOP\nNone.'* ]] || fail_test 'unknown Colima runtime was reported safe'
+[[ "$output" == *$'Safe to stop\n(none)'* ]] || fail_test 'unknown Colima runtime was reported safe'
 printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
 rm -f "$bin/colima"
 output="$(run_scan)"
-[[ "$output" == *$'SAFE TO STOP\nNone.'* ]] || fail_test 'unavailable Colima was not skipped'
+[[ "$output" == *$'Safe to stop\n(none)'* ]] || fail_test 'unavailable Colima was not skipped'
 
 # With every detector unavailable and no process rows, the scan is read-only
 # and produces both empty sections without touching the host.
 : >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" == *$'SAFE TO STOP\nNone.'* && "$output" == *$'NEEDS REVIEW\nNone.'* ]] || fail_test 'empty scan was not reported cleanly'
+[[ "$output" == *$'Safe to stop\n(none)'* && "$output" == *$'Needs review\n(none)'* ]] || fail_test 'empty scan was not reported cleanly'
 [[ ! -s "$FAKE_COLIMA_CALLS" && ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'read-only scan changed fixture state'
 
 # Review heuristics use instantaneous ps %CPU (not top).
@@ -110,28 +101,28 @@ printf '%s\n' \
   'developer  202  1  2-00:00:00 1.0 3000000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' \
   'developer  203  1  10-00:00:00 90.0 100000 /usr/bin/node mystery' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" == *'200     opencode'* ]] || fail_test 'old OpenCode was not reviewed'
+[[ "$output" == *'opencode'* && "$output" == *'pid 200'* ]] || fail_test 'old OpenCode was not reviewed with pid in details'
 [[ "$output" == *'elevated CPU'* ]] || fail_test 'CPU review missing elevated-CPU detail'
-[[ "$output" != *'201     opencode'* ]] || fail_test 'young high CPU OpenCode was reviewed'
-[[ "$output" == *'202     java'* ]] || fail_test 'high-memory Gradle was not reviewed'
+[[ "$output" != *'pid 201'* ]] || fail_test 'young high CPU OpenCode was reviewed'
+[[ "$output" == *'java'* && "$output" == *'pid 202'* ]] || fail_test 'high-memory Gradle was not reviewed'
 [[ "$output" == *'high memory developer workload'* ]] || fail_test 'high-memory review missing detail'
-[[ "$output" != *'203     node'* && "$output" != *'kernel_task'* ]] || fail_test 'unrecognized/system process was reviewed'
+[[ "$output" != *'pid 203'* && "$output" != *'kernel_task'* ]] || fail_test 'unrecognized/system process was reviewed'
 
 # CPU below the normal threshold is omitted even when old.
 printf '%s\n' \
   'developer  210  1  10:00:00  4.9  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" != *'210     opencode'* ]] || fail_test 'below-threshold CPU was reviewed'
+[[ "$output" != *'pid 210'* ]] || fail_test 'below-threshold CPU was reviewed'
 
 # High CPU threshold: age >= 1h and CPU >= 20%.
 printf '%s\n' \
   'developer  211  1  01:30:00  20.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" == *'211     opencode'* ]] || fail_test 'high-CPU threshold case was not reviewed'
+[[ "$output" == *'pid 211'* ]] || fail_test 'high-CPU threshold case was not reviewed'
 printf '%s\n' \
   'developer  211  1  01:30:00  19.9  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-[[ "$output" != *'211     opencode'* ]] || fail_test 'just-below high-CPU threshold was reviewed'
+[[ "$output" != *'pid 211'* ]] || fail_test 'just-below high-CPU threshold was reviewed'
 
 # The existing launch-browser state is safe only when its recorded identity
 # matches a live Chrome row and launchctl no longer owns the recorded service.
@@ -253,7 +244,7 @@ output="$(
 [[ -f "$progress_cleared" ]] || fail_test 'progress cleared marker was not written'
 [[ ! -s "$post_clear_log" ]] || fail_test "expensive command ran after progress clear: $(tr '\n' ' ' <"$post_clear_log")"
 [[ "$output" != *'Preparing report'* && "$output" != *'Sampling CPU'* ]] || fail_test 'progress text leaked into non-TTY output'
-[[ "$output" == *'NEEDS REVIEW'* && "$output" == *'200     opencode'* ]] || fail_test 'review report missing after progress lifecycle'
+[[ "$output" == *'Needs review'* && "$output" == *'pid 200'* && "$output" == *'opencode'* ]] || fail_test 'review report missing after progress lifecycle'
 
 bash -n "$runner" || fail_test 'syntax check failed'
 echo 'slopstop tests passed'
