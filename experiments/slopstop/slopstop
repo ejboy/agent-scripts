@@ -27,7 +27,7 @@ gradle_idle_count=0
 mvnd_idle_count=0
 # Space-padded PID set — no per-row external grep.
 excluded_review_pids=" "
-safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
+safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=(); review_kill=()
 
 usage() {
@@ -111,13 +111,6 @@ collect_and_prepare_reviews() {
 	clear_scan_progress
 }
 
-age_seconds() {
-	local value="$1" days=0 hours=0 minutes=0 seconds=0
-	if [[ "$value" == *-* ]]; then days="${value%%-*}"; value="${value#*-}"; fi
-	IFS=: read -r hours minutes seconds <<<"$value"
-	if [[ -z "${seconds:-}" ]]; then seconds="$minutes"; minutes="$hours"; hours=0; fi
-	printf '%s\n' $((10#$days * 86400 + 10#$hours * 3600 + 10#$minutes * 60 + 10#$seconds))
-}
 format_age() {
 	local seconds="$1"
 	if [[ "$seconds" == "—" ]]; then printf '—'
@@ -219,10 +212,8 @@ container_app_display_name() {
 }
 
 # Raw qemu/Virtualization is intentionally not listed (not actionable).
-recognized_process() {
+is_allowlisted_process() {
 	local name="$1" command_line="$2"
-	is_detached_browser "$command_line" && return 0
-	is_container_app_review "$command_line" && return 0
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
 		opencode:*|*:*bun*opencode*) return 0 ;;
@@ -279,7 +270,7 @@ collect_reviews() {
 			name="$(container_app_display_name "$command_line")"
 			reason="container runtime"
 		else
-			recognized_process "$name" "$command_line" || continue
+			is_allowlisted_process "$name" "$command_line" || continue
 			is_review_candidate "$age" "$cpu" "$rss" || continue
 			cpu_int="${cpu%.*}"
 			if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) || ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
@@ -305,7 +296,7 @@ collect_reviews() {
 	done < <(LC_ALL=C "$sort_command" -t $'\t' -k4,4nr "$tmp_dir/reviews")
 }
 add_safe() {
-	safe_kind+=("$1"); safe_name+=("$2"); safe_age+=("$3"); safe_cpu+=("$4"); safe_memory+=("$5"); safe_details+=("$6"); safe_id+=("$7")
+	safe_name+=("$1"); safe_age+=("$2"); safe_cpu+=("$3"); safe_memory+=("$4"); safe_details+=("$5"); safe_id+=("$6")
 }
 
 # Colima: empty/zero containers on its own runtime; refuse k8s.
@@ -349,7 +340,7 @@ colima_still_safe() {
 }
 detect_colima() {
 	colima_still_safe || return 0
-	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
+	add_safe "Colima" "—" "—" "—" "Running; no active containers" "colima"
 }
 
 daemon_status_kind() {
@@ -414,7 +405,7 @@ detect_gradle() {
 	while IFS= read -r pid; do
 		[[ -n "$pid" ]] && exclude_review_pid "$pid"
 	done <"$tmp_dir/gradle_idle_pids"
-	add_safe "gradle" "Gradle" "—" "—" "—" "${gradle_idle_count} idle daemon(s); gradle --stop" "gradle"
+	add_safe "Gradle" "—" "—" "—" "${gradle_idle_count} idle daemon(s); gradle --stop" "gradle"
 }
 
 mvnd_still_safe() {
@@ -433,7 +424,7 @@ detect_mvnd() {
 	while IFS= read -r pid; do
 		[[ -n "$pid" ]] && exclude_review_pid "$pid"
 	done <"$tmp_dir/mvnd_idle_pids"
-	add_safe "mvnd" "mvnd" "—" "—" "—" "${mvnd_idle_count} idle daemon(s); mvnd --stop" "mvnd"
+	add_safe "mvnd" "—" "—" "—" "${mvnd_idle_count} idle daemon(s); mvnd --stop" "mvnd"
 }
 
 truncate_detail() {
