@@ -29,7 +29,10 @@ current_user=""
 ps_command=""
 top_command=""
 sort_command=""
+sleep_bin=""
 progress_active=0
+progress_pid=""
+progress_shown_marked=0
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
 
@@ -40,22 +43,48 @@ review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); r
 		"  Scan forgotten developer workloads, or stop only authoritative safe candidates."
 }
 fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
-cleanup() { [[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"; }
-trap cleanup EXIT
-# Progress covers top observation + review classification. Test hooks:
-#   SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE are touched when
-#   the TTY progress line is shown or cleared (also marked for non-TTY so fixtures
-#   can assert no expensive work happens after clear).
-show_scan_progress() {
-	if [[ -t 1 ]]; then
-		printf 'Sampling CPU...'
-		progress_active=1
-	fi
-	if [[ -n "${SLOPSTOP_PROGRESS_SHOWN_FILE:-}" ]]; then
-		: >"$SLOPSTOP_PROGRESS_SHOWN_FILE"
+stop_progress_spinner() {
+	if [[ -n "${progress_pid:-}" ]]; then
+		kill "$progress_pid" 2>/dev/null || true
+		wait "$progress_pid" 2>/dev/null || true
+		progress_pid=""
 	fi
 }
+cleanup() {
+	stop_progress_spinner
+	[[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"
+}
+trap cleanup EXIT
+# TTY progress: in-place label + spinner while top samples and the report is built.
+# Test hooks (also marked for non-TTY):
+#   SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE
+mark_progress_shown() {
+	if ((progress_shown_marked == 0)) && [[ -n "${SLOPSTOP_PROGRESS_SHOWN_FILE:-}" ]]; then
+		: >"$SLOPSTOP_PROGRESS_SHOWN_FILE"
+		progress_shown_marked=1
+	fi
+}
+# Show or replace the animated progress line. No output when stdout is not a TTY.
+show_scan_progress() {
+	local label="$1"
+	mark_progress_shown
+	[[ -t 1 ]] || return 0
+	stop_progress_spinner
+	progress_active=1
+	(
+		# Parent owns INT handling; keep spinner from racing the trap.
+		trap '' INT TERM
+		local frames=('|' '/' '-' '\') i=0
+		while true; do
+			printf '\r\033[2K%s %s' "$label" "${frames[i]}"
+			i=$(((i + 1) % 4))
+			"$sleep_bin" 0.1 2>/dev/null || "$sleep_bin" 1
+		done
+	) &
+	progress_pid=$!
+}
 clear_scan_progress() {
+	stop_progress_spinner
 	if ((progress_active)); then
 		printf '\r\033[2K'
 		progress_active=0
@@ -91,6 +120,9 @@ top_command="$(command -v top 2>/dev/null || true)"
 [[ -n "$top_command" ]] || fail "top is required"
 sort_command="$(command -v sort 2>/dev/null || true)"
 [[ -n "$sort_command" ]] || fail "sort is required"
+# Used only for the TTY progress spinner (fractional seconds on macOS).
+sleep_bin="$(command -v sleep 2>/dev/null || true)"
+[[ -n "$sleep_bin" ]] || sleep_bin="/bin/sleep"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
 first_snapshot="$tmp_dir/first"
@@ -165,9 +197,10 @@ lookup_top_cpu() {
 # Observe CPU with top, then classify review candidates while progress still covers
 # that work. Clear only when the review report is ready to print.
 observe_and_collect_reviews() {
-	show_scan_progress
+	show_scan_progress "Sampling CPU..."
 	# Unavailable/malformed top yields an empty map: no CPU-based reviews.
 	sample_cpu_with_top || : >"$cpu_by_pid"
+	show_scan_progress "Preparing report..."
 	collect_reviews "$first_snapshot"
 	clear_scan_progress
 }

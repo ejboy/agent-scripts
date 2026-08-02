@@ -101,16 +101,18 @@ Those signals may only produce **NEEDS REVIEW** candidates.
 - Processes missing from the second sample, or whose identity no longer matches, are not CPU-reviewed (high-memory reviews may still apply when RSS thresholds are met without trusting top CPU).
 - CPU-based results always belong to `NEEDS REVIEW`.
 - A one-second CPU result must never make anything `SAFE TO STOP`.
-- On a TTY, print one static in-place message:
+- On a TTY, show an in-place animated progress line (label + spinner) while work runs:
 
 ```text
-Sampling CPU...
+Sampling CPU... |
+Preparing report... /
 ```
 
-- Do not animate the message.
+- Phase labels: `Sampling CPU...` during `top`, then `Preparing report...` during classification.
+- Animation is TTY-only and does not extend work artificially; it runs only while real work is in progress.
 - Clear it only after observation **and** review classification, immediately before printing `NEEDS REVIEW`.
 - Clear it before exiting on interruption.
-- Print no sampling message when stdout is redirected or piped.
+- Print no sampling/progress message when stdout is redirected or piped.
 - Override interval with `SLOPSTOP_SAMPLE_INTERVAL` (non-negative integer seconds).
 - Tests must stub `top` and must not actually wait.
 
@@ -443,8 +445,8 @@ Checklist:
 - [x] Parse only the second sample for measured CPU.
 - [x] Correlate results by PID and enough process identity to reduce PID-reuse errors.
 - [x] Keep CPU sampling independent from safe-resource detection.
-- [x] Show a single in-place `Sampling CPU...` message only on a TTY.
-- [x] Do not animate the message.
+- [x] Show an in-place progress line only on a TTY (`Sampling CPU...` / `Preparing report...` with spinner).
+- [x] Animate the progress line while real sampling and classification run (TTY only).
 - [x] Clear the message before report output.
 - [x] Clear the message on interruption before exiting.
 - [x] Print no progress text for non-TTY output.
@@ -466,7 +468,7 @@ Done criteria:
 - The second `top` sample supplies the measured CPU value.
 - Documentation says “busy during sample.”
 - CPU sampling cannot create a safe candidate.
-- The TTY progress message is static, clears cleanly, and never appears in piped output.
+- The TTY progress line animates only while real work runs, clears cleanly, and never appears in piped output.
 - Automated tests do not sleep.
 
 #### Chunk 6 — Add conservative review-process recognition
