@@ -1,13 +1,14 @@
 # SlopStop
 
 Experimental macOS-only developer workload scanner. The executable is
-`experiments/slopstop/slopstop`; it reports authoritative safe-to-stop resources
-and conservative review candidates. Only Colima with zero active containers and
-the existing `launch-browser` recorded detached-browser state can be safe.
+`experiments/slopstop/slopstop`.
 
-The browser detector requires the existing state file, a matching Chrome process,
-the recorded remote-debugging port, and an inactive recorded launch service. It
-uses `launch-browser --stop`, so arbitrary browser processes are never classified
-as safe.
+- **Safe to stop:** only Colima when it is running with zero active containers
+  on its own runtime. Stop via `colima stop` (`--stop` / `--stop-safe`).
+- **Needs review:** conservative allowlist of developer workloads (OpenCode,
+  build daemons, dev servers, etc.) using age/CPU/RSS heuristics, plus **main
+  Chrome/Chromium/Edge/Brave processes** reported immediately (no resource gate).
+  Browser helpers/renderers are ignored. Nothing under Needs review is ever
+  stopped automatically.
 
 Run `tests/test-slopstop.sh` for deterministic fixture-based tests.

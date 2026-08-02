@@ -144,11 +144,42 @@ format_memory() {
 format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
 normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
 
+# Main Chrome/Chromium only (not Helper/GPU/renderer subprocesses). Always
+# review-only — never safe-to-stop. No age/CPU/RSS gate (detached leftovers are
+# often idle and young).
+is_browser_main() {
+	local command_line="$1"
+	[[ "$command_line" == *'Chrome Helper'* || "$command_line" == *'Chromium Helper'* ]] && return 1
+	[[ "$command_line" == *'--type='* ]] && return 1
+	[[ "$command_line" == *'/Google Chrome.app/Contents/MacOS/Google Chrome'* ]] && return 0
+	[[ "$command_line" == *'/Chromium.app/'* ]] && return 0
+	[[ "$command_line" == *'/Microsoft Edge.app/'* ]] && return 0
+	[[ "$command_line" == *'/Brave Browser.app/'* ]] && return 0
+	return 1
+}
+browser_display_name() {
+	local command_line="$1"
+	case "$command_line" in
+		*Edge*) printf 'Edge' ;;
+		*Brave*) printf 'Brave' ;;
+		*Chromium*) printf 'Chromium' ;;
+		*) printf 'Chrome' ;;
+	esac
+}
+browser_review_reason() {
+	local command_line="$1"
+	if [[ "$command_line" == *--remote-debugging-* || "$command_line" == *--headless* ]]; then
+		printf 'detached debug browser'
+	else
+		printf 'browser instance'
+	fi
+}
 # Conservative allowlist of developer workloads. Generic java/node/bun/python
 # executables alone never match; wrappers need tool-identifying arguments.
 # name is the basename of the first argv token; command_line is the full command.
 recognized_process() {
 	local name="$1" command_line="$2"
+	is_browser_main "$command_line" && return 0
 	# OpenCode: binary name, path, or bun runner with opencode args.
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
@@ -163,8 +194,6 @@ recognized_process() {
 		# Language tool runners with explicit subcommands.
 		python:*'-m http.server'*|python3:*'-m http.server'*|*:*'python -m http.server'*|*:*'python3 -m http.server'*) return 0 ;;
 		*:*'go run '*|*:*'cargo watch'*|cargo:*watch*) return 0 ;;
-		# Browsers only with headless or remote-debugging flags (review-only).
-		*:*--remote-debugging-*|*:*--headless*) return 0 ;;
 	esac
 	return 1
 }
@@ -177,6 +206,7 @@ is_review_candidate() {
 }
 # Single-pass ps parse: user filter, age, allowlist, thresholds. CPU is the
 # instantaneous ps %CPU heuristic (acceptable for review-only rows).
+# Browsers are always listed when recognized (no resource gate).
 collect_reviews() {
 	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
 	local value days hours minutes seconds first reason cpu_int
@@ -196,14 +226,18 @@ collect_reviews() {
 
 		first="${command_line%% *}"
 		name="${first##*/}"
-		recognized_process "$name" "$command_line" || continue
-		is_review_candidate "$age" "$cpu" "$rss" || continue
-
-		cpu_int="${cpu%.*}"
-		if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) || ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
-			reason="elevated CPU"
+		if is_browser_main "$command_line"; then
+			name="$(browser_display_name "$command_line")"
+			reason="$(browser_review_reason "$command_line")"
 		else
-			reason="high memory developer workload"
+			recognized_process "$name" "$command_line" || continue
+			is_review_candidate "$age" "$cpu" "$rss" || continue
+			cpu_int="${cpu%.*}"
+			if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) || ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
+				reason="elevated CPU"
+			else
+				reason="high memory developer workload"
+			fi
 		fi
 
 		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" "$reason" >>"$tmp_dir/reviews"
@@ -256,43 +290,6 @@ colima_still_safe() {
 detect_colima() {
 	colima_still_safe || return 0
 	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
-}
-process_row_for_pid() {
-	local wanted="$1" snapshot="$2" user pid ppid elapsed cpu rss command_line
-	while read -r user pid ppid elapsed cpu rss command_line; do
-		if [[ "$pid" == "$wanted" ]]; then printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$user" "$pid" "$ppid" "$elapsed" "$cpu" "$rss" "$command_line"; return 0; fi
-	done <"$snapshot"
-	return 1
-}
-# Pure browser safety evaluation against current_snapshot and launch-state.
-# Optional required_pid pins revalidation to the reported candidate.
-# On success prints: pid\telapsed\tcpu\trss and returns 0. Never mutates report arrays.
-evaluate_browser_safe() {
-	local required_pid="${1:-}"
-	local state_file="${HOME:-}/.browser-testing-profile/launch-state"
-	local key value service="" recorded_pid="" row user pid ppid elapsed cpu rss command_line
-	[[ -f "$state_file" ]] || return 1
-	while IFS='=' read -r key value; do case "$key" in service) service="$value" ;; pid) recorded_pid="$value" ;; esac; done <"$state_file"
-	[[ "$service" == xyz.pvrlabs.browser.* ]] || return 1
-	case "$recorded_pid" in ''|*[!0-9]*) return 1 ;; esac
-	if [[ -n "$required_pid" && "$recorded_pid" != "$required_pid" ]]; then return 1; fi
-	row="$(process_row_for_pid "$recorded_pid" "$current_snapshot" 2>/dev/null)" || return 1
-	IFS=$'\t' read -r user pid ppid elapsed cpu rss command_line <<<"$row"
-	[[ "$user" == "$current_user" ]] || return 1
-	kill -0 "$recorded_pid" 2>/dev/null || return 1
-	[[ "$command_line" == *Chrome* || "$command_line" == *chrome* ]] || return 1
-	[[ "$command_line" == *'--remote-debugging-port=9222'* ]] || return 1
-	command -v launchctl >/dev/null 2>&1 || return 1
-	# Active launcher ownership means the browser is not an orphaned safe target.
-	launchctl print "$service" >/dev/null 2>&1 && return 1
-	printf '%s\t%s\t%s\t%s\n' "$recorded_pid" "$elapsed" "$cpu" "$rss"
-	return 0
-}
-detect_browser() {
-	local metrics recorded_pid elapsed cpu rss
-	metrics="$(evaluate_browser_safe)" || return 0
-	IFS=$'\t' read -r recorded_pid elapsed cpu rss <<<"$metrics"
-	add_safe "browser" "Chrome" "$(format_age "$(age_seconds "$elapsed")")" "$(format_cpu "$cpu")" "$(format_memory "$rss")" "Test browser; launcher exited" "$recorded_pid"
 }
 
 truncate_detail() { local value="$1" max="$2"; if ((max < 1)); then printf ''; elif ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
@@ -409,13 +406,8 @@ print_footer() { :; }
 revalidate_colima() {
 	colima_still_safe
 }
-revalidate_browser() {
-	take_snapshot "$second_snapshot"
-	current_snapshot="$second_snapshot"
-	evaluate_browser_safe "$1" >/dev/null
-}
 stop_safe_candidates() {
-	local i status=0 answer launcher candidate_count="${#safe_name[@]}"
+	local i status=0 answer candidate_count="${#safe_name[@]}"
 	local colima_bin
 	if [[ "$mode" == prompt ]]; then
 		printf 'Stop all %d safe candidates? [y/N] ' "${#safe_name[@]}" >&2; IFS= read -r answer || answer=""
@@ -431,18 +423,6 @@ stop_safe_candidates() {
 			else
 				printf 'Stopped Colima\n'
 			fi
-		elif [[ "${safe_id[i]}" =~ ^[0-9]+$ ]]; then
-			if ! revalidate_browser "${safe_id[i]}"; then
-				printf 'Skipped %s (PID %s): state changed\n' "${safe_name[i]}" "${safe_id[i]}"
-				continue
-			fi
-			launcher="$(command -v "${SLOPSTOP_BROWSER_LAUNCHER:-launch-browser}" 2>/dev/null || true)"
-			if [[ -z "$launcher" ]] || ! "$launcher" --stop; then
-				printf 'Failed to stop %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}" >&2
-				status=1
-			else
-				printf 'Stopped %s (PID %s)\n' "${safe_name[i]}" "${safe_id[i]}"
-			fi
 		fi
 	done
 	return "$status"
@@ -450,7 +430,6 @@ stop_safe_candidates() {
 
 current_snapshot="$first_snapshot"
 detect_colima
-detect_browser
 print_safe_section
 collect_and_prepare_reviews
 print_review_section

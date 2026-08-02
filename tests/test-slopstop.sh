@@ -16,18 +16,14 @@ make_stub kill 'exit 0'
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 make_stub docker 'if [[ "$1" == --context ]]; then [[ -n "${FAKE_DOCKER_FAILURE:-}" ]] && exit 1; cat "$FAKE_CONTAINERS"; else cat "$FAKE_GLOBAL_CONTAINERS"; fi'
 make_stub nerdctl '[[ "$1" == --address && "$2" == unix://* ]] || exit 2; cat "$FAKE_CONTAINERS"'
-make_stub launchctl 'case "$1" in print) exit 1;; esac'
-make_stub launch-browser 'echo "$*" >>"$FAKE_BROWSER_CALLS"'
-
 export FAKE_PS_OUTPUT="$test_root/ps"
 export FAKE_COLIMA_STATUS="$test_root/colima-status"
 export FAKE_COLIMA_CALLS="$test_root/colima-calls"
 export FAKE_CONTAINERS="$test_root/containers"
 export FAKE_GLOBAL_CONTAINERS="$test_root/global-containers"
-export FAKE_BROWSER_CALLS="$test_root/browser-calls"
 # Some Colima versions omit the status field on successful running output.
 printf '%s\n' '{"runtime":"docker","docker_socket":"unix:///Users/test/.colima/default/docker.sock"}' >"$FAKE_COLIMA_STATUS"
-: >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"; : >"$FAKE_BROWSER_CALLS"
+: >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"
 printf '%s\n' global-container >"$FAKE_GLOBAL_CONTAINERS"
 
 printf '%s\n' \
@@ -92,7 +88,7 @@ output="$(run_scan)"
 : >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *$'Safe to stop\n(none)'* && "$output" == *$'Needs review\n(none)'* ]] || fail_test 'empty scan was not reported cleanly'
-[[ ! -s "$FAKE_COLIMA_CALLS" && ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'read-only scan changed fixture state'
+[[ ! -s "$FAKE_COLIMA_CALLS" ]] || fail_test 'read-only scan changed fixture state'
 
 # Review heuristics use instantaneous ps %CPU (not top).
 printf '%s\n' \
@@ -149,8 +145,19 @@ output="$(run_scan)"
 for pid in 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317; do
 	[[ "$output" == *"pid $pid"* ]] || fail_test "recognition family pid $pid was not reviewed"
 done
+[[ "$output" == *'detached debug browser'* ]] || fail_test 'debug Chrome missing review reason'
 # Sort is primarily by CPU descending; equal CPUs keep a stable listing presence.
 [[ "$output" == *'Needs review'* ]] || fail_test 'review section missing for recognition families'
+
+# Chrome main processes are always reviewed (no age/CPU gate); helpers are not.
+printf '%s\n' \
+  'developer  330  1  01:22  0.1  217244 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --headless=new' \
+  'developer  331  1  01:22  0.0  100000 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper --type=renderer' \
+  'developer  332  1  10:00:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 330'* && "$output" == *'detached debug browser'* ]] || fail_test 'young idle debug Chrome was not reviewed'
+[[ "$output" == *'pid 332'* && "$output" == *'browser instance'* ]] || fail_test 'main Chrome without flags was not reviewed'
+[[ "$output" != *'pid 331'* ]] || fail_test 'Chrome Helper was reviewed'
 
 # Negative: generic executables and system processes must not match by name alone.
 printf '%s\n' \
@@ -158,13 +165,12 @@ printf '%s\n' \
   'developer  402  1  10:00:00 90.0 100000 /usr/local/bin/node server.js' \
   'developer  403  1  10:00:00 90.0 100000 /usr/local/bin/bun run index.ts' \
   'developer  404  1  10:00:00 90.0 100000 /usr/bin/python3 app.py' \
-  'developer  405  1  10:00:00 90.0 100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
   'developer  406  1  10:00:00 90.0 100000 /usr/bin/kernel_task' \
   'developer  407  1  10:00:00 90.0 100000 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer' \
   'developer  408  1  10:00:00 90.0 100000 /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds_stores' \
   'other      409  1  10:00:00 90.0 400000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
-for pid in 401 402 403 404 405 406 407 408 409; do
+for pid in 401 402 403 404 406 407 408 409; do
 	[[ "$output" != *"pid $pid"* ]] || fail_test "generic/system/other-user pid $pid was incorrectly reviewed"
 done
 [[ "$output" == *$'Needs review\n(none)'* ]] || fail_test 'expected empty review for negative recognition fixtures'
@@ -178,29 +184,13 @@ output="$(run_scan)"
 pos_hi="${output%%pid 502*}"; pos_mid="${output%%pid 503*}"; pos_lo="${output%%pid 501*}"
 ((${#pos_hi} < ${#pos_mid} && ${#pos_mid} < ${#pos_lo})) || fail_test 'review rows were not sorted by CPU descending'
 
-# Review candidates are never stopped automatically.
-: >"$FAKE_BROWSER_CALLS"
-printf '%s\n' 'developer  520  1  10:00:00  8.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
+# Review candidates (including Chrome) are never stopped automatically.
+printf '%s\n' \
+  'developer  520  1  10:00:00  8.0  100000 /opt/opencode opencode --serve' \
+  'developer  521  1  01:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
 output="$(run_scan --stop-safe)"
-[[ "$output" == *'pid 520'* ]] || fail_test 'review row missing in stop-safe scan'
+[[ "$output" == *'pid 520'* && "$output" == *'pid 521'* ]] || fail_test 'review rows missing in stop-safe scan'
 [[ "$output" != *'Stopped'* ]] || fail_test 'review candidate was stopped'
-[[ ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'stop-safe touched browser launcher for review-only scan'
-make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
-printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
-: >"$FAKE_CONTAINERS"
-
-# The existing launch-browser state is safe only when its recorded identity
-# matches a live Chrome row and launchctl no longer owns the recorded service.
-mkdir -p "$test_root/home/.browser-testing-profile"
-printf 'service=xyz.pvrlabs.browser.test\npid=%s\n' "$$" >"$test_root/home/.browser-testing-profile/launch-state"
-printf '%s\n' "developer  $$  1  9-00:00:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222" >"$FAKE_PS_OUTPUT"
-rm -f "$bin/colima"; : >"$FAKE_BROWSER_CALLS"
-output="$(run_scan)"
-[[ "$output" == *'Chrome'* && "$output" == *'Test browser; launcher exited'* ]] || fail_test 'recorded test browser was not safe'
-output="$(run_scan --stop-safe)"
-[[ "$output" == *'Stopped Chrome'* && "$(<"$FAKE_BROWSER_CALLS")" == '--stop' ]] || fail_test 'recorded browser cleanup failed'
-rm -f "$test_root/home/.browser-testing-profile/launch-state"
-
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 printf '%s\n' 'developer  300  1  9-00:00:00  0.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"
@@ -247,29 +237,6 @@ set +e
 output="$(run_scan --stop-safe 2>&1)"; exit_status=$?
 set -e
 [[ "$exit_status" -ne 0 && "$output" == *'Failed to stop Colima'* ]] || fail_test 'Colima stop failure was not reported'
-make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
-
-# Browser candidate whose state changes before stop is skipped.
-mkdir -p "$test_root/home/.browser-testing-profile"
-printf 'service=xyz.pvrlabs.browser.test\npid=%s\n' "$$" >"$test_root/home/.browser-testing-profile/launch-state"
-printf '%s\n' "developer  $$  1  9-00:00:00  0.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222" >"$FAKE_PS_OUTPUT"
-rm -f "$bin/colima"
-: >"$FAKE_BROWSER_CALLS"
-ps_calls="$test_root/ps-calls"
-: >"$ps_calls"
-make_stub ps '
-echo ps >>"'"$ps_calls"'"
-# First call is the initial identity snapshot; later calls include review ps and revalidation.
-if [[ "$(wc -l <"'"$ps_calls"'" | tr -d " ")" -gt 2 ]]; then
-  : >"$FAKE_PS_OUTPUT"
-fi
-cat "$FAKE_PS_OUTPUT"
-'
-output="$(run_scan --stop-safe)"
-[[ "$output" == *'Skipped Chrome'* && "$output" == *'state changed'* ]] || fail_test 'changed browser state was not skipped'
-[[ ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'changed browser state still stopped'
-make_stub ps 'cat "$FAKE_PS_OUTPUT"'
-rm -f "$test_root/home/.browser-testing-profile/launch-state"
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 
 set +e

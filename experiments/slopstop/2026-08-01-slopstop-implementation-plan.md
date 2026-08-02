@@ -19,8 +19,12 @@ The verified minimal baseline covers deterministic tests, Colima detection and s
 ## Progress
 
 Current Phase: Phase 3 — Add more authoritative workload detectors  
-Current Chunk: Chunk 7 — Repository-launched browser integration  
+Current Chunk: Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support  
 Status: Active
+
+Note: Chunk 7 (repo launch-browser safe-stop) was dropped. Browsers are
+review-only: main Chrome/Chromium/Edge/Brave processes are always listed
+with no resource gate; they are never auto-stopped.
 
 ### Phase Checklist
 
@@ -523,30 +527,11 @@ Expand safe cleanup only where native lifecycle state is reliable, while adding 
 
 #### Chunk 7 — Repository-launched browser integration
 
-Status: [ ]
+Status: [x] cancelled / superseded
 
-Preconditions:
-
-- Phase 2 is complete.
-- The existing browser launcher and state format are available.
-- State semantics are understood.
-
-Checklist:
-
-- [ ] (design) Document the exact launcher state fields.
-- [ ] (impl) Validate PID, process identity/start identity, executable, profile, debugging port, and launcher/service ownership.
-- [ ] (impl) Distinguish “service absent” from “service state could not be queried.”
-- [ ] (impl) Classify only repository-launched browsers as safe.
-- [ ] (impl) Use the existing graceful launcher stop operation.
-- [ ] (test) Cover stale PID, PID reuse, wrong profile, wrong port, active launcher, missing launcher state, and query failure.
-- [ ] (verify) Manually launch and clean up a test browser.
-
-Done criteria:
-
-- Arbitrary browsers can never become safe.
-- PID reuse cannot produce a safe candidate.
-- Service-query failure does not imply launcher absence.
-- Real launcher integration is manually verified.
+Completion note: Dropped. No `launch-browser` / launch-state safe-stop path.
+Main browser processes are always **Needs review** (no age/CPU/RSS gate), never
+safe-to-stop. Helpers/renderers (`--type=…`, `Chrome Helper`) are ignored.
 
 #### Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 
