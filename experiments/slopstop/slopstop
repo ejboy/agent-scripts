@@ -144,15 +144,26 @@ format_memory() {
 format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
 normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
 
+# Conservative allowlist of developer workloads. Generic java/node/bun/python
+# executables alone never match; wrappers need tool-identifying arguments.
 # name is the basename of the first argv token; command_line is the full command.
 recognized_process() {
 	local name="$1" command_line="$2"
+	# OpenCode: binary name, path, or bun runner with opencode args.
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
 		opencode:*|*:*bun*opencode*) return 0 ;;
-		java:*gradle*|java:*GradleDaemon*|java:*kotlin*|java:*KotlinCompileDaemon*|java:*mvnd*|java:*maven.daemon*) return 0 ;;
-		mvnd:*|gradle:*|kotlin-daemon:*|vite:*|next:*|webpack:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
-		*:*'python -m http.server'*|*:*'python3 -m http.server'*|*:*'go run '*|*:*'cargo watch'*) return 0 ;;
+		# JVM build daemons (not arbitrary java/Maven apps).
+		java:*GradleDaemon*|java:*org.gradle.launcher.daemon*|java:*gradle*daemon*|java:*KotlinCompileDaemon*|java:*kotlin-daemon*|java:*org.jetbrains.kotlin.daemon*|java:*mvnd*|java:*maven.daemon*) return 0 ;;
+		mvnd:*|gradle:*|kotlin-daemon:*) return 0 ;;
+		# Dev servers by executable basename.
+		vite:*|next:*|next-server:*|webpack:*|webpack-dev-server:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
+		# node/bun only when argv clearly names a known dev tool.
+		node:*vite*|node:*next*|node:*webpack*|node:*nodemon*|bun:*vite*|bun:*next*|bun:*webpack*|bun:*nodemon*) return 0 ;;
+		# Language tool runners with explicit subcommands.
+		python:*'-m http.server'*|python3:*'-m http.server'*|*:*'python -m http.server'*|*:*'python3 -m http.server'*) return 0 ;;
+		*:*'go run '*|*:*'cargo watch'*|cargo:*watch*) return 0 ;;
+		# Browsers only with headless or remote-debugging flags (review-only).
 		*:*--remote-debugging-*|*:*--headless*) return 0 ;;
 	esac
 	return 1

@@ -124,6 +124,71 @@ printf '%s\n' \
 output="$(run_scan)"
 [[ "$output" != *'pid 211'* ]] || fail_test 'just-below high-CPU threshold was reviewed'
 
+# --- Chunk 6: recognition families (all rows are old + above CPU threshold) ---
+# Positive: each supported family must appear with its pid in details.
+printf '%s\n' \
+  'developer  301  1  10:00:00  8.0  100000 /opt/opencode opencode --serve' \
+  'developer  302  1  10:00:00  8.0  100000 /usr/local/bin/bun run opencode --serve' \
+  'developer  303  1  10:00:00  8.0  100000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' \
+  'developer  304  1  10:00:00  8.0  100000 /usr/bin/java org.jetbrains.kotlin.daemon.KotlinCompileDaemon' \
+  'developer  305  1  10:00:00  8.0  100000 /opt/homebrew/bin/mvnd --status' \
+  'developer  306  1  10:00:00  8.0  100000 /usr/local/bin/vite --host' \
+  'developer  307  1  10:00:00  8.0  100000 /usr/local/bin/node /proj/node_modules/vite/bin/vite.js --host' \
+  'developer  308  1  10:00:00  8.0  100000 /usr/local/bin/next dev' \
+  'developer  309  1  10:00:00  8.0  100000 /usr/local/bin/node /proj/node_modules/next/dist/bin/next dev' \
+  'developer  310  1  10:00:00  8.0  100000 /usr/local/bin/webpack serve' \
+  'developer  311  1  10:00:00  8.0  100000 /usr/local/bin/nodemon server.js' \
+  'developer  312  1  10:00:00  8.0  100000 /usr/bin/python3 -m http.server 8000' \
+  'developer  313  1  10:00:00  8.0  100000 /usr/local/go/bin/go run ./cmd/api' \
+  'developer  314  1  10:00:00  8.0  100000 /usr/local/bin/air' \
+  'developer  315  1  10:00:00  8.0  100000 /Users/dev/.cargo/bin/cargo-watch -x run' \
+  'developer  316  1  10:00:00  8.0  100000 /usr/local/bin/cargo watch -x test' \
+  'developer  317  1  10:00:00  8.0  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+rm -f "$bin/colima"
+output="$(run_scan)"
+for pid in 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317; do
+	[[ "$output" == *"pid $pid"* ]] || fail_test "recognition family pid $pid was not reviewed"
+done
+# Sort is primarily by CPU descending; equal CPUs keep a stable listing presence.
+[[ "$output" == *'Needs review'* ]] || fail_test 'review section missing for recognition families'
+
+# Negative: generic executables and system processes must not match by name alone.
+printf '%s\n' \
+  'developer  401  1  10:00:00 90.0 100000 /usr/bin/java -jar app.jar' \
+  'developer  402  1  10:00:00 90.0 100000 /usr/local/bin/node server.js' \
+  'developer  403  1  10:00:00 90.0 100000 /usr/local/bin/bun run index.ts' \
+  'developer  404  1  10:00:00 90.0 100000 /usr/bin/python3 app.py' \
+  'developer  405  1  10:00:00 90.0 100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
+  'developer  406  1  10:00:00 90.0 100000 /usr/bin/kernel_task' \
+  'developer  407  1  10:00:00 90.0 100000 /System/Library/PrivateFrameworks/SkyLight.framework/Resources/WindowServer' \
+  'developer  408  1  10:00:00 90.0 100000 /System/Library/Frameworks/CoreServices.framework/Frameworks/Metadata.framework/Support/mds_stores' \
+  'other      409  1  10:00:00 90.0 400000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+for pid in 401 402 403 404 405 406 407 408 409; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "generic/system/other-user pid $pid was incorrectly reviewed"
+done
+[[ "$output" == *$'Needs review\n(none)'* ]] || fail_test 'expected empty review for negative recognition fixtures'
+
+# CPU sort: higher CPU appears before lower among review rows.
+printf '%s\n' \
+  'developer  501  1  10:00:00  6.0  100000 /opt/opencode opencode --a' \
+  'developer  502  1  10:00:00 40.0  100000 /opt/opencode opencode --b' \
+  'developer  503  1  10:00:00 12.0  100000 /opt/opencode opencode --c' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+pos_hi="${output%%pid 502*}"; pos_mid="${output%%pid 503*}"; pos_lo="${output%%pid 501*}"
+((${#pos_hi} < ${#pos_mid} && ${#pos_mid} < ${#pos_lo})) || fail_test 'review rows were not sorted by CPU descending'
+
+# Review candidates are never stopped automatically.
+: >"$FAKE_BROWSER_CALLS"
+printf '%s\n' 'developer  520  1  10:00:00  8.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'pid 520'* ]] || fail_test 'review row missing in stop-safe scan'
+[[ "$output" != *'Stopped'* ]] || fail_test 'review candidate was stopped'
+[[ ! -s "$FAKE_BROWSER_CALLS" ]] || fail_test 'stop-safe touched browser launcher for review-only scan'
+make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
+printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
+: >"$FAKE_CONTAINERS"
+
 # The existing launch-browser state is safe only when its recorded identity
 # matches a live Chrome row and launchctl no longer owns the recorded service.
 mkdir -p "$test_root/home/.browser-testing-profile"

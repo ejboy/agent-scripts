@@ -18,15 +18,15 @@ The verified minimal baseline covers deterministic tests, Colima detection and s
 
 ## Progress
 
-Current Phase: Phase 2 — Add review-only process detection  
-Current Chunk: Chunk 6 — Add conservative review-process recognition  
+Current Phase: Phase 3 — Add more authoritative workload detectors  
+Current Chunk: Chunk 7 — Repository-launched browser integration  
 Status: Active
 
 ### Phase Checklist
 
 - [x] Phase 0 — Product definition and scope
 - [x] Phase 1 — Recover a working minimal product
-- [ ] Phase 2 — Add review-only process detection
+- [x] Phase 2 — Add review-only process detection
 - [ ] Phase 3 — Add more authoritative workload detectors
 - [ ] Phase 4 — Harden, dogfood, and prepare for wider use
 
@@ -466,7 +466,7 @@ Done criteria:
 
 #### Chunk 6 — Add conservative review-process recognition
 
-Status: [ ]
+Status: [x]
 
 Preconditions:
 
@@ -475,20 +475,22 @@ Preconditions:
 
 Checklist:
 
-- [ ] (design) Define a small allowlist of recognizable developer workloads.
-- [ ] (impl) Recognize OpenCode directly.
-- [ ] (impl) Recognize Bun processes only when arguments clearly identify OpenCode.
-- [ ] (impl) Recognize Gradle and Kotlin daemons conservatively.
-- [ ] (impl) Recognize Maven Daemon (`mvnd`) separately from normal Maven.
-- [ ] (impl) Recognize selected dev servers such as Vite, Next dev, webpack dev server, nodemon, `python -m http.server`, `go run`, Air, and Cargo Watch.
-- [ ] (impl) Recognize headless/remote-debugging browsers as review-only unless repository-owned state proves safety.
-- [ ] (impl) Exclude `kernel_task`, WindowServer, Spotlight, system daemons, other users, and unrecognized processes.
-- [ ] (impl) Apply age/CPU/RSS thresholds.
-- [ ] (impl) Sort review rows primarily by CPU descending.
-- [ ] (test) Cover each supported recognition family with positive and negative fixtures.
-- [ ] (test) Confirm generic `java`, `node`, `bun`, `python`, and browsers are not recognized solely by executable name.
-- [ ] (test) Confirm system and unrelated high-CPU processes are omitted.
+- [x] (design) Define a small allowlist of recognizable developer workloads.
+- [x] (impl) Recognize OpenCode directly.
+- [x] (impl) Recognize Bun processes only when arguments clearly identify OpenCode.
+- [x] (impl) Recognize Gradle and Kotlin daemons conservatively.
+- [x] (impl) Recognize Maven Daemon (`mvnd`) separately from normal Maven.
+- [x] (impl) Recognize selected dev servers such as Vite, Next dev, webpack dev server, nodemon, `python -m http.server`, `go run`, Air, and Cargo Watch.
+- [x] (impl) Recognize headless/remote-debugging browsers as review-only unless repository-owned state proves safety.
+- [x] (impl) Exclude `kernel_task`, WindowServer, Spotlight, system daemons, other users, and unrecognized processes.
+- [x] (impl) Apply age/CPU/RSS thresholds.
+- [x] (impl) Sort review rows primarily by CPU descending.
+- [x] (test) Cover each supported recognition family with positive and negative fixtures.
+- [x] (test) Confirm generic `java`, `node`, `bun`, `python`, and browsers are not recognized solely by executable name.
+- [x] (test) Confirm system and unrelated high-CPU processes are omitted.
 - [ ] (verify) Dogfood against a real old OpenCode or representative developer process.
+
+Completion note: Chunk 6 allowlist is implemented in `recognized_process` with conservative patterns (no bare java/node/bun/python). Fixtures cover OpenCode, bun+opencode, Gradle/Kotlin daemons, mvnd, vite/next/webpack/nodemon (binary and node-wrapped), python http.server, go run, air, cargo-watch, headless Chrome, plus negatives for generic tools, system processes, and other users. Sort-by-CPU and review-never-stopped checks included. Optional real OpenCode dogfood remains.
 
 Done criteria:
 
