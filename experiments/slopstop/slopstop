@@ -144,17 +144,19 @@ format_memory() {
 format_cpu() { [[ "$1" == "—" ]] && printf '—' || printf '%s%%' "$1"; }
 normalize_process_name() { local first="${1%% *}" base; base="${first##*/}"; printf '%s\n' "$base"; }
 
-# Main Chrome/Chromium only (not Helper/GPU/renderer subprocesses). Always
-# review-only — never safe-to-stop. No age/CPU/RSS gate (detached leftovers are
-# often idle and young).
+# Main browser binaries only. Match command *prefix* (not substring) so wrapper
+# scripts and crashpad helpers that mention the app path are ignored.
+# Always review-only — never safe-to-stop. No age/CPU/RSS gate.
 is_browser_main() {
 	local command_line="$1"
 	[[ "$command_line" == *'Chrome Helper'* || "$command_line" == *'Chromium Helper'* ]] && return 1
-	[[ "$command_line" == *'--type='* ]] && return 1
-	[[ "$command_line" == *'/Google Chrome.app/Contents/MacOS/Google Chrome'* ]] && return 0
-	[[ "$command_line" == *'/Chromium.app/'* ]] && return 0
-	[[ "$command_line" == *'/Microsoft Edge.app/'* ]] && return 0
-	[[ "$command_line" == *'/Brave Browser.app/'* ]] && return 0
+	[[ "$command_line" == *crashpad* || "$command_line" == *'--type='* ]] && return 1
+	case "$command_line" in
+		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'|'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome '*) return 0 ;;
+		'/Applications/Chromium.app/Contents/MacOS/Chromium'|'/Applications/Chromium.app/Contents/MacOS/Chromium '*) return 0 ;;
+		'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'|'/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge '*) return 0 ;;
+		'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'|'/Applications/Brave Browser.app/Contents/MacOS/Brave Browser '*) return 0 ;;
+	esac
 	return 1
 }
 browser_display_name() {
