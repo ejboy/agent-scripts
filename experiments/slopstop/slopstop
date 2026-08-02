@@ -25,6 +25,8 @@ ps_command=""
 sort_command=""
 progress_active=0
 progress_shown_marked=0
+gradle_idle_count=0
+mvnd_idle_count=0
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
 
@@ -170,12 +172,44 @@ browser_display_name() {
 		*) printf 'Chrome' ;;
 	esac
 }
+# Docker Desktop / OrbStack app or backend — review only, never safe-stop.
+is_container_app_review() {
+	local command_line="$1"
+	[[ "$command_line" == *'--type='* || "$command_line" == *Helper* || "$command_line" == *crashpad* ]] && return 1
+	case "$command_line" in
+		'/Applications/Docker.app/Contents/MacOS/Docker Desktop'|'/Applications/Docker.app/Contents/MacOS/Docker Desktop '*) return 0 ;;
+		'/Applications/Docker.app/Contents/MacOS/Docker'|'/Applications/Docker.app/Contents/MacOS/Docker '*) return 0 ;;
+		*'/Docker Desktop.app/Contents/MacOS/Docker Desktop'*) return 0 ;;
+		'/Applications/OrbStack.app/Contents/MacOS/OrbStack'|'/Applications/OrbStack.app/Contents/MacOS/OrbStack '*) return 0 ;;
+		*'/com.docker.backend'*|*/com.docker.backend) return 0 ;;
+	esac
+	return 1
+}
+container_app_display_name() {
+	local command_line="$1"
+	case "$command_line" in
+		*OrbStack*) printf 'OrbStack' ;;
+		*) printf 'Docker Desktop' ;;
+	esac
+}
+# Host qemu/Virtualization processes. Host %CPU is only a weak idle hint —
+# guest activity is not visible authoritatively from outside the VM.
+is_qemu_vm_process() {
+	local name="$1" command_line="$2"
+	[[ "$command_line" == *crashpad* || "$command_line" == *'--type='* ]] && return 1
+	[[ "$name" == qemu-system-* || "$name" == qemu-* ]] && return 0
+	[[ "$command_line" == *qemu-system-* ]] && return 0
+	[[ "$command_line" == *'com.apple.Virtualization.VirtualMachine'* ]] && return 0
+	return 1
+}
 # Conservative allowlist of developer workloads. Generic java/node/bun/python
 # executables alone never match; wrappers need tool-identifying arguments.
 # name is the basename of the first argv token; command_line is the full command.
 recognized_process() {
 	local name="$1" command_line="$2"
 	is_detached_browser "$command_line" && return 0
+	is_container_app_review "$command_line" && return 0
+	is_qemu_vm_process "$name" "$command_line" && return 0
 	# OpenCode: binary name, path, or bun runner with opencode args.
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
@@ -200,9 +234,16 @@ is_review_candidate() {
 	((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) && return 0
 	return 1
 }
+exclude_review_pid() {
+	printf '%s\n' "$1" >>"$tmp_dir/excluded_review_pids"
+}
+is_excluded_review_pid() {
+	[[ -f "$tmp_dir/excluded_review_pids" ]] || return 1
+	grep -qxF "$1" "$tmp_dir/excluded_review_pids" 2>/dev/null
+}
 # Single-pass ps parse: user filter, age, allowlist, thresholds. CPU is the
 # instantaneous ps %CPU heuristic (acceptable for review-only rows).
-# Detached debug browsers are always listed (no resource gate).
+# Detached browsers, container apps, and VMs use special listing rules.
 collect_reviews() {
 	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
 	local value days hours minutes seconds first reason cpu_int
@@ -213,6 +254,7 @@ collect_reviews() {
 		[[ "$user" == "$current_user" ]] || continue
 		[[ "$pid" =~ ^[0-9]+$ && "$rss" =~ ^[0-9]+$ ]] || continue
 		[[ "$cpu" =~ ^[0-9]+([.][0-9]+)?$ ]] || continue
+		is_excluded_review_pid "$pid" && continue
 
 		value="$elapsed" days=0 hours=0 minutes=0 seconds=0
 		if [[ "$value" == *-* ]]; then days="${value%%-*}"; value="${value#*-}"; fi
@@ -225,6 +267,18 @@ collect_reviews() {
 		if is_detached_browser "$command_line"; then
 			name="$(browser_display_name "$command_line")"
 			reason="detached debug browser"
+		elif is_container_app_review "$command_line"; then
+			name="$(container_app_display_name "$command_line")"
+			reason="container runtime (review only)"
+		elif is_qemu_vm_process "$name" "$command_line"; then
+			cpu_int="${cpu%.*}"
+			name="qemu"
+			[[ "$command_line" == *Virtualization* ]] && name="Virtualization"
+			if ((cpu_int < REVIEW_CPU_PERCENT)); then
+				reason="VM host process; low host CPU (guest idle unknown)"
+			else
+				reason="VM host process; elevated host CPU (guest may be busy)"
+			fi
 		else
 			recognized_process "$name" "$command_line" || continue
 			is_review_candidate "$age" "$cpu" "$rss" || continue
@@ -286,6 +340,70 @@ colima_still_safe() {
 detect_colima() {
 	colima_still_safe || return 0
 	add_safe "colima" "Colima" "—" "—" "—" "Running; no active containers" "colima"
+}
+
+# Parse `gradle --status` / `mvnd --status`-style lines: PID then IDLE|BUSY.
+# Prints idle count on stdout; writes idle PIDs to $1; returns 0 if safe to stop
+# (idle > 0 and busy == 0).
+daemon_status_is_all_idle() {
+	local status_out="$1" idle_pids_file="$2"
+	local line pid st idle=0 busy=0
+	: >"$idle_pids_file"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ "$line" =~ ^[[:space:]]*([0-9]+)[[:space:]]+([A-Za-z]+) ]] || continue
+		pid="${BASH_REMATCH[1]}"
+		st="${BASH_REMATCH[2]}"
+		case "$(printf '%s' "$st" | tr '[:lower:]' '[:upper:]')" in
+			IDLE)
+				idle=$((idle + 1))
+				printf '%s\n' "$pid" >>"$idle_pids_file"
+				;;
+			BUSY) busy=$((busy + 1)) ;;
+		esac
+	done <<<"$status_out"
+	((idle > 0 && busy == 0)) || return 1
+	printf '%s\n' "$idle"
+	return 0
+}
+
+# Pure: Gradle reports only IDLE daemons (same Gradle major on PATH). Not safe
+# if any BUSY or if status cannot be read.
+gradle_still_safe() {
+	local gradle status_out idle_n
+	gradle="$(command -v gradle 2>/dev/null || true)"
+	[[ -n "$gradle" ]] || return 1
+	status_out="$("$gradle" --status 2>/dev/null)" || return 1
+	idle_n="$(daemon_status_is_all_idle "$status_out" "$tmp_dir/gradle_idle_pids")" || return 1
+	gradle_idle_count="$idle_n"
+	return 0
+}
+detect_gradle() {
+	local pid
+	gradle_idle_count=0
+	gradle_still_safe || return 0
+	while IFS= read -r pid; do
+		[[ -n "$pid" ]] && exclude_review_pid "$pid"
+	done <"$tmp_dir/gradle_idle_pids"
+	add_safe "gradle" "Gradle" "—" "—" "—" "${gradle_idle_count} idle daemon(s); gradle --stop" "gradle"
+}
+
+mvnd_still_safe() {
+	local mvnd status_out idle_n
+	mvnd="$(command -v mvnd 2>/dev/null || true)"
+	[[ -n "$mvnd" ]] || return 1
+	status_out="$("$mvnd" --status 2>/dev/null)" || return 1
+	idle_n="$(daemon_status_is_all_idle "$status_out" "$tmp_dir/mvnd_idle_pids")" || return 1
+	mvnd_idle_count="$idle_n"
+	return 0
+}
+detect_mvnd() {
+	local pid
+	mvnd_idle_count=0
+	mvnd_still_safe || return 0
+	while IFS= read -r pid; do
+		[[ -n "$pid" ]] && exclude_review_pid "$pid"
+	done <"$tmp_dir/mvnd_idle_pids"
+	add_safe "mvnd" "mvnd" "—" "—" "—" "${mvnd_idle_count} idle daemon(s); mvnd --stop" "mvnd"
 }
 
 truncate_detail() { local value="$1" max="$2"; if ((max < 1)); then printf ''; elif ((${#value} > max)); then printf '%s…' "${value:0:max-1}"; else printf '%s' "$value"; fi; }
@@ -402,9 +520,15 @@ print_footer() { :; }
 revalidate_colima() {
 	colima_still_safe
 }
+revalidate_gradle() {
+	gradle_still_safe
+}
+revalidate_mvnd() {
+	mvnd_still_safe
+}
 stop_safe_candidates() {
 	local i status=0 answer candidate_count="${#safe_name[@]}"
-	local colima_bin
+	local colima_bin gradle_bin mvnd_bin
 	if [[ "$mode" == prompt ]]; then
 		printf 'Stop all %d safe candidates? [y/N] ' "${#safe_name[@]}" >&2; IFS= read -r answer || answer=""
 		case "$answer" in y|Y|yes|YES|Yes) ;; *) return 0 ;; esac
@@ -419,13 +543,34 @@ stop_safe_candidates() {
 			else
 				printf 'Stopped Colima\n'
 			fi
+		elif [[ "${safe_id[i]}" == gradle ]]; then
+			if ! revalidate_gradle; then printf 'Skipped %s: state changed\n' "${safe_name[i]}"; continue; fi
+			gradle_bin="$(command -v gradle 2>/dev/null || true)"
+			if [[ -z "$gradle_bin" ]] || ! "$gradle_bin" --stop; then
+				printf 'Failed to stop Gradle daemons\n' >&2
+				status=1
+			else
+				printf 'Stopped Gradle daemons\n'
+			fi
+		elif [[ "${safe_id[i]}" == mvnd ]]; then
+			if ! revalidate_mvnd; then printf 'Skipped %s: state changed\n' "${safe_name[i]}"; continue; fi
+			mvnd_bin="$(command -v mvnd 2>/dev/null || true)"
+			if [[ -z "$mvnd_bin" ]] || ! "$mvnd_bin" --stop; then
+				printf 'Failed to stop mvnd daemons\n' >&2
+				status=1
+			else
+				printf 'Stopped mvnd daemons\n'
+			fi
 		fi
 	done
 	return "$status"
 }
 
+: >"$tmp_dir/excluded_review_pids"
 current_snapshot="$first_snapshot"
 detect_colima
+detect_gradle
+detect_mvnd
 print_safe_section
 collect_and_prepare_reviews
 print_review_section

@@ -19,7 +19,7 @@ The verified minimal baseline covers deterministic tests, Colima detection and s
 ## Progress
 
 Current Phase: Phase 3 — Add more authoritative workload detectors  
-Current Chunk: Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support  
+Current Chunk: Chunk 9 — Multipass  
 Status: Active
 
 Note: Chunk 7 (repo launch-browser safe-stop) was dropped. Browsers are
@@ -537,7 +537,7 @@ and helpers are ignored.
 
 #### Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 
-Status: [ ]
+Status: [x]
 
 Preconditions:
 
@@ -546,15 +546,17 @@ Preconditions:
 
 Checklist:
 
-- [ ] (design) Determine what Gradle native status can authoritatively establish.
-- [ ] (design) Account for Gradle version compatibility.
-- [ ] (design) Determine `mvnd` native status and stop semantics.
-- [ ] (impl) Keep uncertain daemon processes under review.
-- [ ] (impl) Promote only authoritatively idle daemons to safe.
-- [ ] (impl) Use native graceful stop commands.
+- [x] (design) Determine what Gradle native status can authoritatively establish.
+- [x] (design) Account for Gradle version compatibility.
+- [x] (design) Determine `mvnd` native status and stop semantics.
+- [x] (impl) Keep uncertain daemon processes under review.
+- [x] (impl) Promote only authoritatively idle daemons to safe.
+- [x] (impl) Use native graceful stop commands.
 - [ ] (test) Cover compatible/incompatible Gradle versions.
-- [ ] (test) Cover idle, busy, unknown, and command-failure states.
+- [x] (test) Cover idle, busy, unknown, and command-failure states.
 - [ ] (verify) Manually exercise against local Gradle and/or `mvnd` installations when available.
+
+Completion note: Safe when `gradle --status` / `mvnd --status` show only IDLE (no BUSY). Stop via `gradle --stop` / `mvnd --stop` after revalidation. Idle daemon PIDs excluded from review. Kotlin remains review-only. Also added Docker Desktop/OrbStack and qemu/Virtualization as review-only; qemu host CPU is a weak idle hint only.
 
 Done criteria:
 

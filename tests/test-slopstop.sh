@@ -16,14 +16,23 @@ make_stub kill 'exit 0'
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 make_stub docker 'if [[ "$1" == --context ]]; then [[ -n "${FAKE_DOCKER_FAILURE:-}" ]] && exit 1; cat "$FAKE_CONTAINERS"; else cat "$FAKE_GLOBAL_CONTAINERS"; fi'
 make_stub nerdctl '[[ "$1" == --address && "$2" == unix://* ]] || exit 2; cat "$FAKE_CONTAINERS"'
+make_stub gradle 'case "$1" in --status) cat "$FAKE_GRADLE_STATUS" ;; --stop) echo stopped >>"$FAKE_GRADLE_CALLS" ;; esac'
+make_stub mvnd 'case "$1" in --status) cat "$FAKE_MVND_STATUS" ;; --stop) echo stopped >>"$FAKE_MVND_CALLS" ;; esac'
 export FAKE_PS_OUTPUT="$test_root/ps"
 export FAKE_COLIMA_STATUS="$test_root/colima-status"
 export FAKE_COLIMA_CALLS="$test_root/colima-calls"
 export FAKE_CONTAINERS="$test_root/containers"
 export FAKE_GLOBAL_CONTAINERS="$test_root/global-containers"
+export FAKE_GRADLE_STATUS="$test_root/gradle-status"
+export FAKE_GRADLE_CALLS="$test_root/gradle-calls"
+export FAKE_MVND_STATUS="$test_root/mvnd-status"
+export FAKE_MVND_CALLS="$test_root/mvnd-calls"
 # Some Colima versions omit the status field on successful running output.
 printf '%s\n' '{"runtime":"docker","docker_socket":"unix:///Users/test/.colima/default/docker.sock"}' >"$FAKE_COLIMA_STATUS"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"
+: >"$FAKE_GRADLE_CALLS"; : >"$FAKE_MVND_CALLS"
+printf '%s\n' 'No Gradle daemons are running.' >"$FAKE_GRADLE_STATUS"
+printf '%s\n' 'No daemons are running.' >"$FAKE_MVND_STATUS"
 printf '%s\n' global-container >"$FAKE_GLOBAL_CONTAINERS"
 
 printf '%s\n' \
@@ -197,7 +206,63 @@ printf '%s\n' \
 output="$(run_scan --stop-safe)"
 [[ "$output" == *'pid 520'* && "$output" == *'pid 521'* ]] || fail_test 'review rows missing in stop-safe scan'
 [[ "$output" != *'Stopped'* ]] || fail_test 'review candidate was stopped'
+
+# Idle Gradle daemons are safe; busy ones are not. Idle PIDs are excluded from review.
+printf '%s\n' \
+  'PID STATUS   INFO' \
+  '9001 IDLE     8.5' \
+  '9002 IDLE     8.5' >"$FAKE_GRADLE_STATUS"
+printf '%s\n' \
+  'developer  9001  1  10:00:00  0.0  200000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' \
+  'developer  9002  1  10:00:00  0.0  200000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' >"$FAKE_PS_OUTPUT"
+: >"$FAKE_GRADLE_CALLS"; : >"$FAKE_CONTAINERS"
+printf '%s\n' '{"status":"Stopped","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
+output="$(run_scan)"
+[[ "$output" == *'Gradle'* && "$output" == *'2 idle daemon'* ]] || fail_test 'idle Gradle was not safe'
+[[ "$output" != *'pid 9001'* && "$output" != *'pid 9002'* ]] || fail_test 'idle Gradle PIDs still listed under review'
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'Stopped Gradle daemons'* && -s "$FAKE_GRADLE_CALLS" ]] || fail_test 'gradle --stop was not used'
+
+printf '%s\n' \
+  'PID STATUS   INFO' \
+  '9001 IDLE     8.5' \
+  '9003 BUSY     8.5' >"$FAKE_GRADLE_STATUS"
+printf '%s\n' \
+  'developer  9001  1  10:00:00  0.0  200000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' \
+  'developer  9003  1  10:00:00  5.0  200000 /usr/bin/java org.gradle.launcher.daemon.bootstrap.GradleDaemon' >"$FAKE_PS_OUTPUT"
+: >"$FAKE_GRADLE_CALLS"
+output="$(run_scan)"
+[[ "$output" != *'idle daemon'* ]] || fail_test 'busy Gradle was reported safe'
+[[ "$output" == *'pid 9003'* ]] || fail_test 'busy Gradle daemon was not reviewed'
+
+# Idle mvnd is safe.
+printf '%s\n' 'No Gradle daemons are running.' >"$FAKE_GRADLE_STATUS"
+printf '%s\n' \
+  'PID STATUS' \
+  '9100 IDLE' >"$FAKE_MVND_STATUS"
+printf '%s\n' 'developer  9100  1  10:00:00  0.0  200000 /opt/homebrew/bin/mvnd' >"$FAKE_PS_OUTPUT"
+: >"$FAKE_MVND_CALLS"
+output="$(run_scan)"
+[[ "$output" == *'mvnd'* && "$output" == *'1 idle daemon'* ]] || fail_test 'idle mvnd was not safe'
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'Stopped mvnd daemons'* && -s "$FAKE_MVND_CALLS" ]] || fail_test 'mvnd --stop was not used'
+printf '%s\n' 'No daemons are running.' >"$FAKE_MVND_STATUS"
+
+# Docker Desktop / OrbStack / qemu are review-only (no resource gate for apps).
+printf '%s\n' \
+  'developer  9200  1  01:00  0.0  100000 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9201  1  01:00  0.0  100000 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
+  'developer  9202  1  10:00:00  0.5  500000 qemu-system-aarch64 -machine virt' \
+  'developer  9203  1  10:00:00 12.0  500000 qemu-system-x86_64 -machine q35' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'Docker Desktop'* && "$output" == *'pid 9200'* ]] || fail_test 'Docker Desktop was not reviewed'
+[[ "$output" == *'OrbStack'* && "$output" == *'pid 9201'* ]] || fail_test 'OrbStack was not reviewed'
+[[ "$output" == *'pid 9202'* && "$output" == *'low host CPU'* ]] || fail_test 'idle-looking qemu was not reviewed'
+[[ "$output" == *'pid 9203'* && "$output" == *'elevated host CPU'* ]] || fail_test 'busy-looking qemu was not reviewed'
+[[ "$output" != *'Stopped'* ]] || fail_test 'container/VM review should not auto-stop'
+
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
+printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
 printf '%s\n' 'developer  300  1  9-00:00:00  0.0  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"
 printf '%s\n' '{"status":"Running","runtime":"docker"}' >"$FAKE_COLIMA_STATUS"
