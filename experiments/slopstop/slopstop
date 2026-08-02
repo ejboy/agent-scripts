@@ -11,23 +11,23 @@ readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
 readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
 readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
-readonly CPU_SAMPLE_INTERVAL_SECONDS=7
+# macOS top: -l 2 takes two samples; -s N sleeps N seconds between them.
+# Only the second sample is treated as measured CPU ("busy during sample").
+readonly CPU_SAMPLE_INTERVAL_SECONDS=1
 # Width of the fixed columns before DETAILS:
 #   "%-7s %-12s %5s %7s %9s  " → 7+1+12+1+5+1+7+1+9+2 = 46
 readonly NORMAL_TABLE_FIXED_WIDTH=46
 # Prefer the table whenever there is at least this much room for DETAILS.
 # Narrower terminals use the multi-line compact layout instead.
 readonly MIN_NORMAL_DETAIL_WIDTH=25
-# The second ps snapshot is the sampled CPU observation; this avoids trusting
-# one instantaneous %CPU value while keeping the first implementation simple.
 
 mode="scan"
 sample_interval="${SLOPSTOP_SAMPLE_INTERVAL:-$CPU_SAMPLE_INTERVAL_SECONDS}"
-sleep_command="${SLOPSTOP_SLEEP_COMMAND:-sleep}"
 tmp_dir=""
 current_snapshot=""
 current_user=""
 ps_command=""
+top_command=""
 sort_command=""
 progress_active=0
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
@@ -42,13 +42,13 @@ review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); r
 fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 cleanup() { [[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"; }
 trap cleanup EXIT
-# Progress covers observation + review classification. Test hooks:
+# Progress covers top observation + review classification. Test hooks:
 #   SLOPSTOP_PROGRESS_SHOWN_FILE / SLOPSTOP_PROGRESS_CLEARED_FILE are touched when
 #   the TTY progress line is shown or cleared (also marked for non-TTY so fixtures
 #   can assert no expensive work happens after clear).
 show_scan_progress() {
 	if [[ -t 1 ]]; then
-		printf 'Scanning developer workloads...'
+		printf 'Sampling CPU...'
 		progress_active=1
 	fi
 	if [[ -n "${SLOPSTOP_PROGRESS_SHOWN_FILE:-}" ]]; then
@@ -83,18 +83,20 @@ done
 
 [[ "$(uname -s)" == "Darwin" ]] || fail "SlopStop supports macOS only"
 case "$sample_interval" in ''|*[!0-9]*) fail "SLOPSTOP_SAMPLE_INTERVAL must be a non-negative integer" ;; esac
-sleep_command="$(command -v "$sleep_command" 2>/dev/null || true)"
-[[ -n "$sleep_command" ]] || fail "sleep is required"
 current_user="$(id -un 2>/dev/null || true)"
 [[ -n "$current_user" ]] || fail "could not determine current user"
 ps_command="$(command -v ps 2>/dev/null || true)"
 [[ -n "$ps_command" ]] || fail "ps is required"
+top_command="$(command -v top 2>/dev/null || true)"
+[[ -n "$top_command" ]] || fail "top is required"
 sort_command="$(command -v sort 2>/dev/null || true)"
 [[ -n "$sort_command" ]] || fail "sort is required"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
 first_snapshot="$tmp_dir/first"
 second_snapshot="$tmp_dir/second"
+top_raw="$tmp_dir/top_raw"
+cpu_by_pid="$tmp_dir/cpu_by_pid"
 
 take_snapshot() {
 	local destination="$1"
@@ -102,19 +104,71 @@ take_snapshot() {
 }
 take_snapshot "$first_snapshot"
 
-# Observe CPU over the sample interval, then classify review candidates while the
-# progress line (if any) still covers that work. Clear only when the report is ready.
+# Parse only the second top sample into pid → cpu + command (for identity checks).
+# Output lines: pid<TAB>cpu<TAB>command
+parse_top_second_sample() {
+	local input="$1" output="$2"
+	local headers=0 line pid cpu cmd
+	: >"$output"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		if [[ "$line" == PID* && "$line" == *%CPU* ]]; then
+			headers=$((headers + 1))
+			continue
+		fi
+		((headers < 2)) && continue
+		[[ -z "${line// }" ]] && continue
+		# Stop if a third sample header block appears.
+		[[ "$line" == Processes:* ]] && break
+		read -r pid cpu cmd <<<"$line" || continue
+		[[ "$pid" =~ ^[0-9]+$ ]] || continue
+		[[ "$cpu" =~ ^[0-9]+([.][0-9]+)?$ ]] || continue
+		printf '%s\t%s\t%s\n' "$pid" "$cpu" "$cmd" >>"$output"
+	done <"$input"
+}
+
+# Two-sample top observation. Measured CPU is the second sample only.
+sample_cpu_with_top() {
+	: >"$cpu_by_pid"
+	# -n 9999: request a full process list (default is terminal-height limited).
+	# -stats pid,cpu,command: stable columns for parsing.
+	if ! "$top_command" -l 2 -s "$sample_interval" -n 9999 -stats pid,cpu,command >"$top_raw" 2>/dev/null; then
+		return 1
+	fi
+	parse_top_second_sample "$top_raw" "$cpu_by_pid"
+	[[ -s "$cpu_by_pid" ]] || return 1
+	return 0
+}
+
+# top truncates COMMAND; accept prefix match either way.
+top_identity_matches() {
+	local process_name="$1" top_command_field="$2"
+	local top_token="${top_command_field%% *}"
+	[[ -n "$process_name" && -n "$top_token" ]] || return 1
+	[[ "$top_token" == "$process_name" || "$top_token" == "$process_name"* || "$process_name" == "$top_token"* ]]
+}
+
+lookup_top_cpu() {
+	# Sets lookup_cpu and lookup_top_cmd from cpu_by_pid for $1=pid. Returns 0 if found.
+	local wanted="$1" pid cpu cmd
+	lookup_cpu=""
+	lookup_top_cmd=""
+	while IFS=$'\t' read -r pid cpu cmd; do
+		if [[ "$pid" == "$wanted" ]]; then
+			lookup_cpu="$cpu"
+			lookup_top_cmd="$cmd"
+			return 0
+		fi
+	done <"$cpu_by_pid"
+	return 1
+}
+
+# Observe CPU with top, then classify review candidates while progress still covers
+# that work. Clear only when the review report is ready to print.
 observe_and_collect_reviews() {
-	local sleep_status=0
 	show_scan_progress
-	"$sleep_command" "$sample_interval" || {
-		sleep_status=$?
-		clear_scan_progress
-		exit "$sleep_status"
-	}
-	take_snapshot "$second_snapshot"
-	current_snapshot="$second_snapshot"
-	collect_reviews "$second_snapshot"
+	# Unavailable/malformed top yields an empty map: no CPU-based reviews.
+	sample_cpu_with_top || : >"$cpu_by_pid"
+	collect_reviews "$first_snapshot"
 	clear_scan_progress
 }
 
@@ -167,14 +221,15 @@ is_review_candidate() {
 	((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) && return 0
 	return 1
 }
-# Single-pass parse of the sampled snapshot: filter user, compute age, match
-# detectors, and threshold without per-row external commands or extra table walks.
+# Process table (ps) supplies identity, age, and RSS. Measured CPU comes only from
+# the second top sample, correlated by PID + command identity to reduce PID reuse.
 collect_reviews() {
-	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
+	local snapshot="$1" user pid ppid elapsed ps_cpu rss command_line age name
 	local value days hours minutes seconds first
+	local measured_cpu detail reason
 	local formatted_age formatted_cpu formatted_memory
 	: >"$tmp_dir/reviews"
-	while read -r user pid ppid elapsed cpu rss command_line; do
+	while read -r user pid ppid elapsed ps_cpu rss command_line; do
 		[[ -n "${pid:-}" && "$pid" != "PID" ]] || continue
 		[[ "$user" == "$current_user" ]] || continue
 		[[ "$pid" =~ ^[0-9]+$ && "$rss" =~ ^[0-9]+$ ]] || continue
@@ -188,20 +243,47 @@ collect_reviews() {
 		first="${command_line%% *}"
 		name="${first##*/}"
 		recognized_process "$name" "$command_line" || continue
-		is_review_candidate "$age" "$cpu" "$rss" || continue
-		printf '%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" >>"$tmp_dir/reviews"
+
+		# Measured CPU requires a second-sample top row whose command still matches.
+		measured_cpu="0"
+		if lookup_top_cpu "$pid"; then
+			if top_identity_matches "$name" "$lookup_top_cmd"; then
+				measured_cpu="$lookup_cpu"
+			else
+				# PID reuse or identity change: do not trust this sample.
+				continue
+			fi
+		else
+			# Process missing from the second top sample: treat as gone for CPU paths.
+			# High-memory reviews still use ps RSS when the process remained in the
+			# pre-sample snapshot and meets the memory threshold alone.
+			if ! is_review_candidate "$age" "0" "$rss"; then
+				continue
+			fi
+			measured_cpu="0"
+		fi
+
+		is_review_candidate "$age" "$measured_cpu" "$rss" || continue
+
+		local cpu_int="${measured_cpu%.*}"
+		if ((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) || ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
+			reason="busy during sample"
+		else
+			reason="high memory developer workload"
+		fi
+
+		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$measured_cpu" "$rss" "$reason" >>"$tmp_dir/reviews"
 	done <"$snapshot"
-	while IFS=$'\t' read -r pid name age cpu rss; do
-		# Format into locals first so array appends do not nest command substitutions.
+	while IFS=$'\t' read -r pid name age measured_cpu rss detail; do
 		formatted_age="$(format_age "$age")"
-		formatted_cpu="$(format_cpu "$cpu")"
+		formatted_cpu="$(format_cpu "$measured_cpu")"
 		formatted_memory="$(format_memory "$rss")"
 		review_pid+=("$pid")
 		review_name+=("$name")
 		review_age+=("$formatted_age")
 		review_cpu+=("$formatted_cpu")
 		review_memory+=("$formatted_memory")
-		review_details+=("recognized developer workload")
+		review_details+=("$detail")
 	done < <(LC_ALL=C "$sort_command" -t $'\t' -k4,4nr "$tmp_dir/reviews")
 }
 add_safe() {

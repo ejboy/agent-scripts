@@ -19,7 +19,7 @@ The verified minimal baseline covers deterministic tests, Colima detection and s
 ## Progress
 
 Current Phase: Phase 2 — Add review-only process detection  
-Current Chunk: Chunk 5 — Implement one-second CPU observation  
+Current Chunk: Chunk 6 — Add conservative review-process recognition  
 Status: Active
 
 ### Phase Checklist
@@ -93,11 +93,12 @@ Those signals may only produce **NEEDS REVIEW** candidates.
 
 ### CPU sampling
 
-- SlopStop first identifies recognized developer-process PIDs.
-- Use macOS `top` with two samples separated by approximately one second.
-- The first sample establishes the baseline.
-- Parse the second sample as CPU usage during the sampling interval.
-- Describe the result as **busy during the one-second sample**, not sustained long-term CPU.
+- Process identity, age, and RSS come from a `ps` snapshot taken before sampling.
+- Use macOS `top -l 2 -s <interval> -n 9999 -stats pid,cpu,command` with a default interval of **1 second**.
+- The first top sample establishes the baseline; only the **second** sample is measured CPU.
+- Describe CPU-triggered rows as **busy during sample**, not sustained long-term CPU.
+- Correlate top rows to `ps` by PID and command identity (prefix match against truncated top `COMMAND`) to reduce PID-reuse errors.
+- Processes missing from the second sample, or whose identity no longer matches, are not CPU-reviewed (high-memory reviews may still apply when RSS thresholds are met without trusting top CPU).
 - CPU-based results always belong to `NEEDS REVIEW`.
 - A one-second CPU result must never make anything `SAFE TO STOP`.
 - On a TTY, print one static in-place message:
@@ -107,9 +108,10 @@ Sampling CPU...
 ```
 
 - Do not animate the message.
-- Clear it before printing the report.
+- Clear it only after observation **and** review classification, immediately before printing `NEEDS REVIEW`.
 - Clear it before exiting on interruption.
 - Print no sampling message when stdout is redirected or piped.
+- Override interval with `SLOPSTOP_SAMPLE_INTERVAL` (non-negative integer seconds).
 - Tests must stub `top` and must not actually wait.
 
 ### Review thresholds
@@ -424,7 +426,7 @@ Add the developer-focused actionable `top` behavior without weakening the safe-s
 
 #### Chunk 5 — Implement one-second CPU observation
 
-Status: [ ]
+Status: [x]
 
 Preconditions:
 
@@ -434,27 +436,29 @@ Preconditions:
 
 Checklist:
 
-- [ ] Confirm the exact supported macOS `top` command and output format.
-- [ ] Define the measurement as “busy during sample,” not sustained CPU.
-- [ ] Identify recognized candidate PIDs before sampling where practical.
-- [ ] Run `top` with an initial baseline and a second sample approximately one second later.
-- [ ] Parse only the second sample for measured CPU.
-- [ ] Correlate results by PID and enough process identity to reduce PID-reuse errors.
-- [ ] Keep CPU sampling independent from safe-resource detection.
-- [ ] Show a single in-place `Sampling CPU...` message only on a TTY.
-- [ ] Do not animate the message.
-- [ ] Clear the message before report output.
-- [ ] Clear the message on interruption before exiting.
-- [ ] Print no progress text for non-TTY output.
-- [ ] Stub `top` in tests so tests do not wait.
-- [ ] Test CPU below threshold.
-- [ ] Test CPU above the normal threshold.
-- [ ] Test CPU above the high threshold.
-- [ ] Test process disappearance or PID identity change.
-- [ ] Test malformed or unavailable `top` output.
-- [ ] Test non-TTY execution without sampling text.
+- [x] Confirm the exact supported macOS `top` command and output format.
+- [x] Define the measurement as “busy during sample,” not sustained CPU.
+- [x] Identify recognized candidate PIDs before sampling where practical.
+- [x] Run `top` with an initial baseline and a second sample approximately one second later.
+- [x] Parse only the second sample for measured CPU.
+- [x] Correlate results by PID and enough process identity to reduce PID-reuse errors.
+- [x] Keep CPU sampling independent from safe-resource detection.
+- [x] Show a single in-place `Sampling CPU...` message only on a TTY.
+- [x] Do not animate the message.
+- [x] Clear the message before report output.
+- [x] Clear the message on interruption before exiting.
+- [x] Print no progress text for non-TTY output.
+- [x] Stub `top` in tests so tests do not wait.
+- [x] Test CPU below threshold.
+- [x] Test CPU above the normal threshold.
+- [x] Test CPU above the high threshold.
+- [x] Test process disappearance or PID identity change.
+- [x] Test malformed or unavailable `top` output.
+- [x] Test non-TTY execution without sampling text.
 - [ ] Test interruption cleanup where practical.
 - [ ] Manually compare an OpenCode sample with Activity Monitor or interactive `top`.
+
+Completion note: Chunk 5 uses `top -l 2 -s <interval> -n 9999 -stats pid,cpu,command` (default interval 1s). `ps` supplies identity/age/RSS; only the second top sample is measured CPU. Details say `busy during sample` or `high memory developer workload`. Fixtures cover thresholds, disappearance, identity mismatch, and soft top failure. Manual Activity Monitor comparison remains optional dogfood.
 
 Done criteria:
 
