@@ -567,7 +567,13 @@ print_continuation_line() {
 print_safe_section() {
 	local width i detail safe_pid header
 	width="$(terminal_width)"
-	printf 'SlopStop\n\n'
+	header='SlopStop - finds forgotten processes wasting CPU and memory'
+	if ((${#header} > width)); then
+		printf '%s\n' "$(truncate_detail "$header" "$width")"
+	else
+		printf '%s\n' "$header"
+	fi
+	printf '\n'
 	if ((${#safe_name[@]} == 0)); then
 		printf 'Safe to stop\n(none)\n\n'
 		return
