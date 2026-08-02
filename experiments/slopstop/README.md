@@ -23,7 +23,7 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 ## Needs review (never auto-stopped)
 
 - Allowlisted workloads (OpenCode, dev servers, JVM daemons not proven idle, …) with **age/CPU/RSS** gates (see thresholds below)
-- **Detached debug browsers** — main Chrome/Chromium/Edge/Brave binary with headless and/or remote-debugging flags; **no** age/CPU/RSS gate; helpers and interactive sessions ignored
+- **Detached debug browsers** — main Chrome/Chromium/Edge/Brave binary with headless and/or remote-debugging flags; **no** age/CPU/RSS gate; helpers and interactive sessions ignored. When SlopStop can associate the browser with a PVR Labs launch-browser job, it prints `kill: launchctl remove <label>`.
 - **Docker Desktop / OrbStack** — main app binary only (not backends/helpers); **same resource gates** as other allowlisted processes; quiet/young instances are not listed
 
 ### Resource gates (ps heuristic)

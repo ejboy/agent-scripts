@@ -35,6 +35,7 @@ cat "$FAKE_CONTAINERS"
 '
 make_stub gradle 'case "$1" in --status) cat "$FAKE_GRADLE_STATUS" ;; --stop) echo stopped >>"$FAKE_GRADLE_CALLS" ;; esac'
 make_stub mvnd 'case "$1" in --status) cat "$FAKE_MVND_STATUS" ;; --stop) echo stopped >>"$FAKE_MVND_CALLS" ;; esac'
+make_stub launchctl 'cat "$FAKE_LAUNCHCTL_LIST"'
 export FAKE_PS_OUTPUT="$test_root/ps"
 export FAKE_COLIMA_STATUS="$test_root/colima-status"
 export FAKE_COLIMA_CALLS="$test_root/colima-calls"
@@ -45,6 +46,8 @@ export FAKE_GRADLE_STATUS="$test_root/gradle-status"
 export FAKE_GRADLE_CALLS="$test_root/gradle-calls"
 export FAKE_MVND_STATUS="$test_root/mvnd-status"
 export FAKE_MVND_CALLS="$test_root/mvnd-calls"
+export FAKE_LAUNCHCTL_LIST="$test_root/launchctl-list"
+printf '%s\n' 'PID	Status	Label' >"$FAKE_LAUNCHCTL_LIST"
 printf '%s\n' '{"status":"Running","runtime":"docker","docker_socket":"unix:///Users/test/.colima/default/docker.sock"}' >"$FAKE_COLIMA_STATUS"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"; : >"$FAKE_K8S_CONTAINERS"
 : >"$FAKE_GRADLE_CALLS"; : >"$FAKE_MVND_CALLS"
@@ -208,6 +211,61 @@ output="$(run_scan)"
 [[ "$output" != *'pid 332'* ]] || fail_test 'normal interactive Chrome was reviewed'
 [[ "$output" != *'pid 331'* ]] || fail_test 'Chrome Helper was reviewed'
 [[ "$output" != *'pid 333'* ]] || fail_test 'bash wrapper mentioning Chrome path was reviewed'
+
+# launchctl kill-hint detection (PVR Labs launch-browser labels only).
+printf '%s\n' \
+  'PID	Status	Label' \
+  '300	0	xyz.pvrlabs.browser.44498.10298' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  340  300  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 340'* && "$output" == *'kill: launchctl remove xyz.pvrlabs.browser.44498.10298'* ]] || fail_test 'wrapper-parent launch-browser Chrome missing kill hint'
+
+printf '%s\n' \
+  'PID	Status	Label' \
+  '350	0	xyz.pvrlabs.browser.555.111' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  350  1  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 350'* && "$output" == *'kill: launchctl remove xyz.pvrlabs.browser.555.111'* ]] || fail_test 'direct-job launch-browser Chrome missing kill hint'
+
+printf '%s\n' \
+  'PID	Status	Label' \
+  '360	0	com.example.browser' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  360  1  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 360'* && "$output" != *'launchctl remove'* ]] || fail_test 'unrelated launchd label produced kill hint'
+
+printf '%s\n' \
+  'PID	Status	Label' \
+  '300	0	xyz.pvrlabs.browser.44498.10298; rm -rf /' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  370  300  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 370'* && "$output" != *'launchctl remove'* ]] || fail_test 'invalid launch-browser label produced kill hint'
+
+printf '%s\n' 'PID	Status	Label' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  380  1  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 380'* && "$output" != *'launchctl remove'* ]] || fail_test 'no matching launchctl job produced kill hint'
+
+# Narrow/normal widths render the kill hint without overflow.
+printf '%s\n' \
+  'PID	Status	Label' \
+  '300	0	xyz.pvrlabs.browser.44498.10298' >"$FAKE_LAUNCHCTL_LIST"
+printf '%s\n' \
+  'developer  340  300  10:00:00  0.1  100000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --headless --remote-debugging-port=9222' >"$FAKE_PS_OUTPUT"
+for width in 20 33; do
+	width_output="$(SLOPSTOP_WIDTH="$width" run_scan)"
+	while IFS= read -r line; do
+		((${#line} <= width)) || fail_test "narrow launchctl output overflowed at $width: ${#line} <$line>"
+	done <<<"$width_output"
+	[[ "$width_output" == *'kill: launchctl'* ]] || fail_test "narrow launchctl hint missing at width $width"
+done
+width_output="$(SLOPSTOP_WIDTH=100 run_scan)"
+[[ "$width_output" == *'kill: launchctl remove xyz.pvrlabs.browser.44498.10298'* ]] || fail_test 'full launchctl label not shown at normal width'
 
 printf '%s\n' \
   'developer  401  1  10:00:00 90.0 100000 /usr/bin/java -jar app.jar' \

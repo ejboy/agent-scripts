@@ -28,7 +28,7 @@ mvnd_idle_count=0
 # Space-padded PID set — no per-row external grep.
 excluded_review_pids=" "
 safe_kind=(); safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
-review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=()
+review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=(); review_kill=()
 
 usage() {
 	printf '%s\n' \
@@ -96,6 +96,7 @@ sort_command="$(command -v sort 2>/dev/null || true)"
 
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/slopstop.XXXXXX")" || fail "could not create temporary directory"
 process_snapshot="$tmp_dir/processes"
+launchctl_services="$tmp_dir/launchctl-services"
 
 take_snapshot() {
 	local destination="$1"
@@ -104,6 +105,7 @@ take_snapshot() {
 
 collect_and_prepare_reviews() {
 	show_scan_progress "Preparing report..."
+	collect_launchctl_services
 	take_snapshot "$process_snapshot"
 	collect_reviews "$process_snapshot"
 	clear_scan_progress
@@ -161,6 +163,43 @@ browser_display_name() {
 	esac
 }
 
+# launchctl submit-style jobs (launch-browser) run the browser as a child of a
+# per-instance job. Snapshot launchctl's job table once so a detached browser
+# can print a kill hint (launchctl remove <label>). Only launch-browser labels
+# are accepted; labels are treated as data, never shell syntax.
+collect_launchctl_services() {
+	command -v launchctl >/dev/null 2>&1 || return 0
+	launchctl list 2>/dev/null >"$launchctl_services" || true
+}
+# Exact numeric PID match in the cached job table; accept only launch-browser
+# labels (xyz.pvrlabs.browser.*) made of conservative characters.
+launchctl_label_for_pid() {
+	local pid="$1" line label
+	[[ -s "$launchctl_services" ]] || return 1
+	while IFS= read -r line; do
+		[[ "$line" =~ ^([0-9]+)[[:space:]]+[0-9-]+[[:space:]]+(.+)$ ]] || continue
+		[[ "${BASH_REMATCH[1]}" == "$pid" ]] || continue
+		label="${BASH_REMATCH[2]}"
+		[[ "$label" =~ ^xyz\.pvrlabs\.browser\.[A-Za-z0-9._-]+$ ]] || continue
+		printf '%s\n' "$label"
+		return 0
+	done <"$launchctl_services"
+	return 1
+}
+# Match by browser PID first, then its parent (the launch-browser wrapper job).
+launchctl_label_for_browser() {
+	local pid="$1" ppid="$2" label
+	if label="$(launchctl_label_for_pid "$pid")"; then
+		printf '%s\n' "$label"
+		return 0
+	fi
+	if label="$(launchctl_label_for_pid "$ppid")"; then
+		printf '%s\n' "$label"
+		return 0
+	fi
+	return 1
+}
+
 # One main app binary each; normal resource gates apply (not "always on").
 is_container_app_review() {
 	local command_line="$1"
@@ -212,7 +251,7 @@ is_excluded_review_pid() {
 
 collect_reviews() {
 	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
-	local value days hours minutes seconds first reason cpu_int
+	local value days hours minutes seconds first reason cpu_int launch_label
 	local formatted_age formatted_cpu formatted_memory
 	: >"$tmp_dir/reviews"
 	while read -r user pid ppid elapsed cpu rss command_line; do
@@ -230,9 +269,11 @@ collect_reviews() {
 
 		first="${command_line%% *}"
 		name="${first##*/}"
+		launch_label=""
 		if is_detached_browser "$command_line"; then
 			name="$(browser_display_name "$command_line")"
 			reason="detached debug browser"
+			launch_label="$(launchctl_label_for_browser "$pid" "$ppid")" || launch_label=""
 		elif is_container_app_review "$command_line"; then
 			is_review_candidate "$age" "$cpu" "$rss" || continue
 			name="$(container_app_display_name "$command_line")"
@@ -248,9 +289,9 @@ collect_reviews() {
 			fi
 		fi
 
-		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" "$reason" >>"$tmp_dir/reviews"
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" "$reason" "$launch_label" >>"$tmp_dir/reviews"
 	done <"$snapshot"
-	while IFS=$'\t' read -r pid name age cpu rss detail; do
+	while IFS=$'\t' read -r pid name age cpu rss detail kill_hint; do
 		formatted_age="$(format_age "$age")"
 		formatted_cpu="$(format_cpu "$cpu")"
 		formatted_memory="$(format_memory "$rss")"
@@ -260,6 +301,7 @@ collect_reviews() {
 		review_cpu+=("$formatted_cpu")
 		review_memory+=("$formatted_memory")
 		review_details+=("$detail")
+		review_kill+=("$kill_hint")
 	done < <(LC_ALL=C "$sort_command" -t $'\t' -k4,4nr "$tmp_dir/reviews")
 }
 add_safe() {
@@ -461,6 +503,13 @@ print_name_detail_row() {
 		printf '%-*s  %s\n' "$name_w" "$name" "$(truncate_detail "$detail" "$detail_w")"
 	fi
 }
+# Two-space indented continuation line, truncated to fit within term_width.
+print_continuation_line() {
+	local text="$1" term_width="$2"
+	local avail=$((term_width - 2))
+	((avail < 1)) && avail=1
+	printf '  %s\n' "$(truncate_detail "$text" "$avail")"
+}
 print_safe_section() {
 	local width i detail safe_pid header
 	width="$(terminal_width)"
@@ -485,7 +534,7 @@ print_safe_section() {
 	printf '\n'
 }
 print_review_section() {
-	local width i detail
+	local width i detail kill_hint
 	width="$(terminal_width)"
 	printf 'Needs review\n'
 	if ((${#review_pid[@]} == 0)); then
@@ -495,6 +544,10 @@ print_review_section() {
 	for ((i = 0; i < ${#review_pid[@]}; i++)); do
 		detail="$(format_entry_detail "${review_pid[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "${review_details[i]}")"
 		print_name_detail_row "${review_name[i]}" "$detail" "$width"
+		kill_hint="${review_kill[i]:-}"
+		if [[ -n "$kill_hint" ]]; then
+			print_continuation_line "kill: launchctl remove $kill_hint" "$width"
+		fi
 	done
 	printf '\n'
 }
