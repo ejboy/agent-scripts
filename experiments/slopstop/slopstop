@@ -211,6 +211,32 @@ container_app_display_name() {
 	esac
 }
 
+# python -m http.server: age-only review (≥8h), never safe-to-stop.
+# Generic python apps are not matched; only the stdlib module form.
+is_python_http_server() {
+	local command_line="$1"
+	[[ "$command_line" == *'-m http.server'* ]]
+}
+# Port from positional arg after http.server; skip option values. Default 8000.
+python_http_server_port() {
+	local command_line="$1" rest token prev="" port=""
+	rest="${command_line#*http.server}"
+	for token in $rest; do
+		case "$prev" in
+			-b|--bind|-d|--directory|-p|--protocol) prev="$token"; continue ;;
+		esac
+		case "$token" in
+			--bind=*|--directory=*|--protocol=*) prev="$token"; continue ;;
+			-b|--bind|-d|--directory|-p|--protocol) prev="$token"; continue ;;
+		esac
+		if [[ "$token" =~ ^[1-9][0-9]{0,4}$ ]] && ((10#$token <= 65535)); then
+			port="$token"
+		fi
+		prev="$token"
+	done
+	printf '%s\n' "${port:-8000}"
+}
+
 # Raw qemu/Virtualization is intentionally not listed (not actionable).
 is_allowlisted_process() {
 	local name="$1" command_line="$2"
@@ -221,7 +247,6 @@ is_allowlisted_process() {
 		mvnd:*|gradle:*|kotlin-daemon:*) return 0 ;;
 		vite:*|next:*|next-server:*|webpack:*|webpack-dev-server:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
 		node:*vite*|node:*next*|node:*webpack*|node:*nodemon*|bun:*vite*|bun:*next*|bun:*webpack*|bun:*nodemon*) return 0 ;;
-		python:*'-m http.server'*|python3:*'-m http.server'*|*:*'python -m http.server'*|*:*'python3 -m http.server'*) return 0 ;;
 		*:*'go run '*|*:*'cargo watch'*|cargo:*watch*) return 0 ;;
 	esac
 	return 1
@@ -324,6 +349,10 @@ collect_reviews() {
 			is_review_candidate "$age" "$cpu" "$rss" || continue
 			name="$(container_app_display_name "$command_line")"
 			reason="container runtime"
+		elif is_python_http_server "$command_line"; then
+			# Age-only: idle leftovers are the useful signal; never auto-stop.
+			((age >= MIN_OLD_AGE_SECONDS)) || continue
+			reason="old dev server; port $(python_http_server_port "$command_line")"
 		else
 			if is_allowlisted_process "$name" "$command_line"; then
 				is_review_candidate "$age" "$cpu" "$rss" || continue

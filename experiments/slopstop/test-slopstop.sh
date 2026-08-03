@@ -186,7 +186,7 @@ printf '%s\n' \
   'developer  309  1  10:00:00  8.0  100000 /usr/local/bin/node /proj/node_modules/next/dist/bin/next dev' \
   'developer  310  1  10:00:00  8.0  100000 /usr/local/bin/webpack serve' \
   'developer  311  1  10:00:00  8.0  100000 /usr/local/bin/nodemon server.js' \
-  'developer  312  1  10:00:00  8.0  100000 /usr/bin/python3 -m http.server 8000' \
+  'developer  312  1  10:00:00  0.0  100000 /usr/bin/python3 -m http.server 8000' \
   'developer  313  1  10:00:00  8.0  100000 /usr/local/go/bin/go run ./cmd/api' \
   'developer  314  1  10:00:00  8.0  100000 /usr/local/bin/air' \
   'developer  315  1  10:00:00  8.0  100000 /Users/dev/.cargo/bin/cargo-watch -x run' \
@@ -198,6 +198,21 @@ for pid in 301 302 303 304 305 306 307 308 309 310 311 312 313 314 315 316 317; 
 	[[ "$output" == *"pid $pid"* ]] || fail_test "recognition family pid $pid was not reviewed"
 done
 [[ "$output" == *'detached debug browser'* ]] || fail_test 'debug Chrome missing review reason'
+[[ "$output" == *'old dev server; port 8000'* ]] || fail_test 'python http.server missing age-only review reason'
+
+# python -m http.server: age ≥8h only (idle OK); port from args or default 8000.
+printf '%s\n' \
+  'developer  318  1  10:00:00  0.0  5000 /usr/bin/python3 -m http.server' \
+  'developer  319  1  10:00:00  0.1  5000 /usr/bin/python -m http.server --bind 127.0.0.1 8080' \
+  'developer  320  1  07:59:59  0.0  5000 /usr/bin/python3 -m http.server 8000' \
+  'developer  321  1  01:30:00 25.0  5000 /usr/bin/python3 -m http.server 9000' \
+  'developer  322  1  10:00:00  0.0  5000 /usr/bin/python3 app.py' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+[[ "$output" == *'pid 318'* && "$output" == *'old dev server; port 8000'* ]] || fail_test 'idle default-port http.server not reviewed'
+[[ "$output" == *'pid 319'* && "$output" == *'old dev server; port 8080'* ]] || fail_test 'idle explicit-port http.server not reviewed'
+[[ "$output" != *'pid 320'* ]] || fail_test 'just-under-8h http.server was reviewed'
+[[ "$output" != *'pid 321'* ]] || fail_test 'young high-CPU http.server was reviewed (age-only gate)'
+[[ "$output" != *'pid 322'* ]] || fail_test 'generic python app was reviewed as http.server'
 
 printf '%s\n' \
   'developer  330  1  01:22  0.1  217244 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --headless=new' \

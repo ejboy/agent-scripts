@@ -22,7 +22,8 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 
 ## Needs review (never auto-stopped)
 
-- Allowlisted workloads (OpenCode, dev servers, JVM daemons not proven idle, …) with **age/CPU/RSS** gates (see thresholds below)
+- **`python -m http.server`** — age ≥8h only (no CPU/RSS gate); detail includes port (default 8000). Never safe-to-stop.
+- Allowlisted workloads (OpenCode, other dev servers, JVM daemons not proven idle, …) with **age/CPU/RSS** gates (see thresholds below)
 - **Detached debug browsers** — main Chrome/Chromium/Edge/Brave binary with headless and/or remote-debugging flags; **no** age/CPU/RSS gate; helpers and interactive sessions ignored. When SlopStop can associate the browser with a PVR Labs launch-browser job, it prints `kill: launchctl remove <label>`.
 - **Docker Desktop / OrbStack** — main app binary only (not backends/helpers); **same resource gates** as other allowlisted processes; quiet/young instances are not listed
 
@@ -30,6 +31,7 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 
 | Scope                | Age |     Metric |
 | -------------------- | --: | ---------: |
+| `python -m http.server` | ≥8h | (none) |
 | Allowlisted workload | ≥8h |    CPU ≥5% |
 | Allowlisted workload | ≥1h |   CPU ≥20% |
 | Allowlisted workload | ≥8h | RSS ≥2 GiB |
