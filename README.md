@@ -95,7 +95,7 @@ The wrapper options are:
 
 - `--full`: ordinary live Maven output.
 - `--raw`: alias for `--full`.
-- `--keep-log`: retain the log after a successful compact run.
+- `--keep-log`: retain a successful compact-run log temporarily.
 - `--help-mvn-lite`: show the wrapper version, usage, and wrapper options.
 
 Maven informational options such as `--help` and `--version` continue to pass
@@ -120,7 +120,7 @@ Compact mode is designed primarily for builds and tests. Reporting and inspectio
 
 Summaries are deterministic and conservative. Unsupported formats fall back to at most 80 lines from the Maven log. The wrapper does not inspect the POM, classify every Maven plugin, reconstruct test counts, or call an AI service.
 
-Compact-mode failure logs remain under `.agent-logs/maven/` in the current project. Successful logs are deleted unless `--keep-log` is supplied. Set `MVN_LITE_LOG_DIR` to use another destination. Retained raw logs are authoritative, and projects adopting `mvn-lite` should ignore `.agent-logs/`.
+Compact-mode failure logs remain under `.agent-logs/maven/` in the current project. Successful logs are deleted unless `--keep-log` is supplied. After a failed run, `mvn-lite` removes its logs older than seven days, including logs retained by `--keep-log`. Move any log that must be kept longer. Set `MVN_LITE_LOG_DIR` to use another destination. Retained raw logs are authoritative, and projects adopting `mvn-lite` should ignore `.agent-logs/`.
 
 A project may optionally define its own `./scripts/build` wrapper for project-specific verification policy, but that vocabulary belongs in the application repository rather than here.
 

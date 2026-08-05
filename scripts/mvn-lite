@@ -7,6 +7,7 @@
 set -uo pipefail
 
 readonly AGENT_SCRIPTS_VERSION="0.1.0"
+readonly LOG_RETENTION_MINUTES=10080
 
 project_dir="$PWD"
 log_dir="${MVN_LITE_LOG_DIR:-$project_dir/.agent-logs/maven}"
@@ -27,7 +28,7 @@ print_mvn_lite_help() {
 	printf '  mvn-lite [wrapper options] [Maven arguments]\n\n'
 	printf 'Wrapper options:\n'
 	printf '  --full, --raw       Stream complete Maven output\n'
-	printf '  --keep-log          Retain the log after a successful build\n'
+	printf '  --keep-log          Retain a successful-build log temporarily\n'
 	printf '  --help-mvn-lite     Show this help\n\n'
 	printf 'Maven options such as --help and --version are passed through to Maven.\n'
 }
@@ -297,6 +298,11 @@ forward_signal() {
 	exit "$status"
 }
 
+prune_old_logs() {
+	find "$log_dir" -type f -name 'maven-*.log.*' -mmin "+$LOG_RETENTION_MINUTES" \
+		-exec rm -f -- {} + 2>/dev/null || true
+}
+
 if [[ "$passthrough" == true ]]; then
 	exec "${command[@]}"
 fi
@@ -333,6 +339,7 @@ if ((status == 0)); then
 	exit 0
 fi
 
+prune_old_logs
 printf 'FAIL\n\n'
 summary="$(extract_failure_summary)" || summary=""
 test_failure=false

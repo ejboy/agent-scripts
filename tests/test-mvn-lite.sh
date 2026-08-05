@@ -196,12 +196,26 @@ output="$(run_from_project -- --help)"
 [[ "$output" == *'usage: mvn'* && "$output" != PASS* ]] || fail_test "-- --help was not passed through"
 assert_args --help
 
+old_log="$project/.agent-logs/maven/maven-20000101-000000-1.log.old"
+recent_log="$project/.agent-logs/maven/maven-recent.log.kept"
+unrelated_log="$project/.agent-logs/maven/notes.old"
+printf 'old Maven log\n' >"$old_log"
+printf 'recent Maven log\n' >"$recent_log"
+printf 'unrelated log\n' >"$unrelated_log"
+touch -t 200001010000 "$old_log" "$unrelated_log"
+export FAKE_MODE=success
+output="$(run_from_project test)"
+[[ -f "$old_log" ]] || fail_test "success pruned an old Maven log"
+
 export FAKE_MODE=compiler
 set +e
 output="$(run_from_project test 2>&1)"
 status=$?
 set -e
 [[ "$status" -eq 17 ]] || fail_test "compiler status was $status"
+[[ ! -e "$old_log" ]] || fail_test "failure did not prune an old Maven log"
+[[ -f "$recent_log" ]] || fail_test "failure pruned a recent Maven log"
+[[ -f "$unrelated_log" ]] || fail_test "failure pruned an unrelated file"
 [[ "$output" == *'Compiler: src/main/java/App.java:4:9 — cannot find symbol'* ]] || fail_test "compiler summary missing"
 [[ "$output" == *'Compiler detail: symbol:   variable missing'* ]] || fail_test "compiler detail missing"
 [[ "$output" == *'Goal: org.apache.maven.plugins:maven-compiler-plugin:compile'* ]] || fail_test "compiler goal missing"
