@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+
+# html-screenshot 0.1.0
+# Renders one local HTML file or URL to a PNG through headless Chrome.
+# https://github.com/ejboy/agent-scripts
+
+set -euo pipefail
+
+readonly AGENT_SCRIPTS_VERSION="0.1.0"
+
+usage() {
+	printf 'html-screenshot %s\n\n' "$AGENT_SCRIPTS_VERSION"
+	printf '%s\n' \
+		'Usage: ./scripts/html-screenshot [options] <html-file-or-url>' \
+		'' \
+		'Options:' \
+		'  -o, --output PATH       Screenshot output path' \
+		'  -w, --width PIXELS      Viewport width (default: 1280)' \
+		'  -h, --height PIXELS     Viewport height (default: 720)' \
+		'      --wait MILLISECONDS Rendering delay (default: 500)' \
+		'      --scale NUMBER      Device scale factor (default: 1)' \
+		'      --chrome PATH       Chrome or Chromium executable' \
+		'      --no-sandbox        Pass --no-sandbox to Chrome' \
+		'      --verbose           Show Chrome diagnostic output' \
+		'      --help              Show this help' \
+		'' \
+		'Environment:' \
+		'  CHROME_BIN              Chrome or Chromium executable'
+}
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 1
+}
+
+find_chrome() {
+	local candidate
+	local command_name
+	local candidates=()
+
+	if [[ -n "$chrome" ]]; then
+		[[ -x "$chrome" ]] && printf '%s\n' "$chrome"
+		[[ -x "$chrome" ]]
+		return
+	fi
+	candidates+=(
+		'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+		'/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary'
+		'/Applications/Chromium.app/Contents/MacOS/Chromium'
+	)
+	for command_name in google-chrome google-chrome-stable chromium chromium-browser; do
+		candidate="$(command -v "$command_name" 2>/dev/null || true)"
+		[[ -z "$candidate" ]] || candidates+=("$candidate")
+	done
+	for candidate in "${candidates[@]}"; do
+		if [[ -x "$candidate" ]]; then
+			printf '%s\n' "$candidate"
+			return 0
+		fi
+	done
+	return 1
+}
+
+width=1280
+height=720
+wait_ms=500
+scale=1
+output=''
+chrome="${CHROME_BIN:-}"
+no_sandbox=false
+verbose=false
+target=''
+
+while (($# > 0)); do
+	case "$1" in
+		-o|--output|-w|--width|-h|--height|--wait|--scale|--chrome)
+			(($# >= 2)) || fail "$1 requires a value"
+			case "$1" in
+				-o|--output) output="$2" ;;
+				-w|--width) width="$2" ;;
+				-h|--height) height="$2" ;;
+				--wait) wait_ms="$2" ;;
+				--scale) scale="$2" ;;
+				--chrome) chrome="$2" ;;
+			esac
+			shift 2
+			;;
+		--no-sandbox) no_sandbox=true; shift ;;
+		--verbose) verbose=true; shift ;;
+		--help) usage; exit 0 ;;
+		--*) fail "unknown option: $1" ;;
+		*)
+			[[ -z "$target" ]] || fail 'only one HTML file or URL may be specified'
+			target="$1"
+			shift
+			;;
+	esac
+done
+
+[[ -n "$target" ]] || {
+	usage >&2
+	exit 1
+}
+[[ "$width" =~ ^[1-9][0-9]*$ ]] || fail 'width must be a positive integer'
+[[ "$height" =~ ^[1-9][0-9]*$ ]] || fail 'height must be a positive integer'
+[[ "$wait_ms" =~ ^(0|[1-9][0-9]*)$ ]] || fail 'wait must be a non-negative integer'
+[[ "$scale" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || fail 'scale must be a positive number'
+awk -v scale="$scale" 'BEGIN { exit !(scale > 0) }' || fail 'scale must be a positive number'
+
+requested_chrome="$chrome"
+if ! chrome="$(find_chrome)"; then
+	if [[ -n "$requested_chrome" ]]; then
+		fail "Chrome or Chromium executable not found: $requested_chrome"
+	fi
+	fail 'Chrome or Chromium not found; set CHROME_BIN or use --chrome'
+fi
+
+if [[ "$target" =~ ^https?:// ]] || [[ "$target" =~ ^file:// ]]; then
+	url="$target"
+	default_name='screenshot'
+else
+	[[ -f "$target" ]] || fail "HTML file not found: $target"
+	target_dir="$(cd -- "$(dirname -- "$target")" && pwd)" || fail "could not resolve HTML file: $target"
+	target_name="$(basename -- "$target")"
+	file_path="$target_dir/$target_name"
+	file_path="${file_path//[%]/%25}"
+	file_path="${file_path//[#]/%23}"
+	file_path="${file_path//[?]/%3F}"
+	url="file://$file_path"
+	default_name="${target_name%.*}"
+fi
+
+if [[ -z "$output" ]]; then
+	output="$PWD/$default_name.png"
+elif [[ "$output" != /* ]]; then
+	output="$PWD/$output"
+fi
+output_dir="$(dirname -- "$output")"
+mkdir -p -- "$output_dir" || fail "could not create output directory: $output_dir"
+output_dir="$(cd -- "$output_dir" && pwd)" || fail "could not resolve output directory: $output_dir"
+output="$output_dir/$(basename -- "$output")"
+
+stderr_file="$(mktemp "${TMPDIR:-/tmp}/html-screenshot.XXXXXX")" || fail 'could not create temporary Chrome log'
+backup_file=''
+render_success=false
+cleanup() {
+	rm -f -- "$stderr_file"
+	if [[ -n "$backup_file" ]]; then
+		if [[ "$render_success" == true ]]; then
+			rm -f -- "$backup_file"
+		elif [[ -e "$backup_file" || -L "$backup_file" ]]; then
+			mv -f -- "$backup_file" "$output"
+		fi
+	fi
+}
+trap cleanup EXIT
+
+if [[ -e "$output" || -L "$output" ]]; then
+	backup_file="$(mktemp "${TMPDIR:-/tmp}/html-screenshot-output.XXXXXX")" ||
+		fail "could not protect existing screenshot: $output"
+	rm -f -- "$backup_file"
+	mv -- "$output" "$backup_file" || fail "could not protect existing screenshot: $output"
+fi
+
+args=(
+	--headless=new
+	--disable-gpu
+	--hide-scrollbars
+	--allow-file-access-from-files
+	--run-all-compositor-stages-before-draw
+	--virtual-time-budget="$wait_ms"
+	--force-device-scale-factor="$scale"
+	--window-size="$width,$height"
+	--screenshot="$output"
+)
+[[ "$no_sandbox" != true ]] || args+=(--no-sandbox)
+
+if ! "$chrome" "${args[@]}" "$url" 2>"$stderr_file"; then
+	cat "$stderr_file" >&2
+	fail "Chrome failed to render: $url"
+fi
+if [[ ! -s "$output" ]]; then
+	cat "$stderr_file" >&2
+	fail "Chrome produced no screenshot: $output"
+fi
+render_success=true
+if [[ "$verbose" == true ]]; then
+	cat "$stderr_file" >&2
+else
+	grep -v 'CVDisplayLinkCreateWithCGDisplay failed\. CVReturn: -6670' "$stderr_file" >&2 || true
+fi
+printf 'Screenshot: %s\n' "$output"

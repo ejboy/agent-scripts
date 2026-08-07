@@ -52,15 +52,17 @@ update_readme_version() {
 printf '%s\n' "$new_version" >"$version_file"
 update_script_version scripts/mvn-lite mvn-lite AGENT_SCRIPTS_VERSION
 update_script_version scripts/launch-browser launch-browser AGENT_SCRIPTS_VERSION
+update_script_version scripts/html-screenshot html-screenshot AGENT_SCRIPTS_VERSION
 update_readme_version
 
 ./tests/test-versions.sh
 ./tests/test-mvn-lite.sh
 ./tests/test-launch-browser.sh
+./tests/test-html-screenshot.sh
 if command -v shellcheck >/dev/null 2>&1; then
 	shellcheck --severity=warning \
-		scripts/mvn-lite scripts/launch-browser tests/*.sh maintainers/bump-version
+		scripts/mvn-lite scripts/launch-browser scripts/html-screenshot tests/*.sh maintainers/bump-version
 fi
 
 printf '\nUpdated agent-scripts from %s to %s.\n\n' "$current_version" "$new_version"
-git diff -- README.md VERSION scripts/mvn-lite scripts/launch-browser
+git diff -- README.md VERSION scripts/mvn-lite scripts/launch-browser scripts/html-screenshot

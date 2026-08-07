@@ -2,7 +2,13 @@
 
 [![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.1.0)
 
-Maven build logs often consume far more coding-agent context than the actual failure. `mvn-lite` keeps normal Maven command syntax and exit behavior while providing compact output for common build and verification workflows.
+agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Some reduce noisy tool output and save agent context; others make common development tasks easier to automate. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
+
+## Tools
+
+- `mvn-lite` — compact Maven output for builds and tests
+- `html-screenshot` — render local HTML or URLs to PNG
+- `launch-browser` — launch Chrome with DevTools enabled
 
 Public, standalone utilities live under `scripts/`. Repository release tooling lives
 separately under `maintainers/` and is not part of the public utility interface.
@@ -10,6 +16,8 @@ separately under `maintainers/` and is not part of the public utility interface.
 ## mvn-lite
 
 *Introverted Maven for coding agents.*
+
+`mvn-lite` provides compact Maven output while preserving normal Maven command behavior.
 
 `mvn-lite` is optimized for build, test, package, install, and verification commands. Use `--full` for reporting goals or whenever ordinary Maven output is needed.
 
@@ -139,6 +147,18 @@ A project may optionally define its own `./scripts/build` wrapper for project-sp
 Successful detached launches record their service label and PID in `~/.browser-testing-profile/launch-state`, alongside the existing persistent browser profile. `--stop` validates that the recorded service uses the `xyz.pvrlabs.browser.*` prefix, asks `launchctl` to stop it, and verifies that both the recorded PID and DevTools endpoint have stopped before removing state. If the recorded PID still owns port `9222` after service removal, the script terminates that process directly. It never kills an arbitrary process merely because it uses port `9222`.
 
 The temporary launch log is removed when Chrome exits normally; abnormal-exit logs remain available for diagnostics.
+
+## html-screenshot
+
+`scripts/html-screenshot` is a one-shot headless Chrome renderer for local HTML files, `file://` URLs, and HTTP(S) URLs. It does not start or manage a reusable browser instance.
+
+```bash
+./scripts/html-screenshot examples/page.html
+./scripts/html-screenshot --width 1440 --height 900 --wait 1000 -o /tmp/page.png examples/page.html
+./scripts/html-screenshot --scale 2 https://example.com
+```
+
+It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait; use `--verbose` to retain Chrome diagnostics.
 
 ## Maintaining releases
 

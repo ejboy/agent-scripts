@@ -32,6 +32,7 @@ assert_script_version() {
 
 assert_script_version "$root/scripts/mvn-lite" mvn-lite AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/launch-browser" launch-browser AGENT_SCRIPTS_VERSION
+assert_script_version "$root/scripts/html-screenshot" html-screenshot AGENT_SCRIPTS_VERSION
 
 grep -Fq "badge/version-$expected_version-blue" "$root/README.md" ||
 	fail_test "README version badge does not match VERSION"
