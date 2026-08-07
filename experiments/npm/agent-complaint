@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+readonly AGENT_COMPLAINT_VERSION="0.0.1"
+readonly USAGE='Usage:
+  agent-complaint [options] <command> <details>
+  agent-complaint --command <command> --details <details> [options]
+
+Record a small, local observation about developer tooling that is unfriendly
+to coding agents. Use it for noisy successes or failures, misleading output,
+hard-to-parse diagnostics, bad defaults, inconvenient artifacts, or similar
+wasted context or work. Report enough to explain the problem, but do not
+include source code, secrets, credentials, or large command output.
+
+The report is appended locally. Set AGENT_COMPLAINT_FILE to override the path.
+Otherwise it uses $XDG_DATA_HOME/agent-scripts/complaints.jsonl, or
+$HOME/.agent-scripts/complaints.jsonl when XDG_DATA_HOME is unset.
+
+Options:
+  --command TEXT       Command or command pattern (alternative to first argument)
+  --details TEXT       Concise description of the problem (alternative to second argument)
+  --issue CATEGORY     noisy-success, noisy-failure, misleading-output,
+                       hard-to-parse, bad-default, or other (default: other)
+  --exit-code NUMBER   Optional observed exit code
+  --output-lines NUM   Optional observed output line count
+  --output-bytes NUM   Optional observed output byte count
+  -h, --help           Show this help
+  --version            Show the version
+
+Examples:
+  agent-complaint "npm test" "A successful test run printed every passing test individually"
+  agent-complaint --command "javadoc ..." --issue noisy-failure \
+    --details "Thousands of lines were emitted; the actionable error was near the end"
+  agent-complaint --command "npm run verify" --issue noisy-success \
+    --details "More than 250 passing tests were individually printed" --exit-code 0 \
+    --output-lines 1800
+
+Reports stay on this machine; this command does not run or inspect the command,
+capture its output, or send telemetry anywhere.'
+
+json_string() {
+	local value="$1" char escaped code
+	value="${value//\\/\\\\}"
+	value="${value//\"/\\\"}"
+	for code in {1..31}; do
+		printf -v char '%b' "\\$(printf '%03o' "$code")"
+		printf -v escaped '\\u%04x' "$code"
+		value="${value//$char/$escaped}"
+	done
+	printf '"%s"' "$value"
+}
+
+usage_error() {
+	printf 'agent-complaint: %s\nTry "agent-complaint --help" for usage.\n' "$1" >&2
+	exit 2
+}
+
+command_text=""
+details=""
+issue="other"
+exit_code=""
+output_lines=""
+output_bytes=""
+positional=()
+
+while (($# > 0)); do
+	case "$1" in
+		-h|--help)
+			printf '%s\n' "$USAGE"
+			exit 0
+			;;
+		--version)
+			printf 'agent-complaint %s\n' "$AGENT_COMPLAINT_VERSION"
+			exit 0
+			;;
+		--command|--details|--issue|--exit-code|--output-lines|--output-bytes)
+			option="$1"
+			(($# >= 2)) || usage_error "$option requires a value"
+			value="$2"
+			shift 2
+			case "$option" in
+				--command) command_text="$value" ;;
+				--details) details="$value" ;;
+				--issue) issue="$value" ;;
+				--exit-code) exit_code="$value" ;;
+				--output-lines) output_lines="$value" ;;
+				--output-bytes) output_bytes="$value" ;;
+			esac
+			;;
+		--)
+			shift
+			positional+=("$@")
+			break
+			;;
+		-*) usage_error "unknown option: $1" ;;
+		*) positional+=("$1"); shift ;;
+	esac
+done
+
+((${#positional[@]} == 0 || ${#positional[@]} == 2)) || usage_error "provide command and details as two positional arguments"
+if ((${#positional[@]} == 2)); then
+	[[ -z "$command_text" ]] || usage_error "command was provided twice"
+	[[ -z "$details" ]] || usage_error "details were provided twice"
+	command_text="${positional[0]}"
+	details="${positional[1]}"
+fi
+[[ -n "$command_text" ]] || usage_error "a command is required"
+[[ -n "$details" ]] || usage_error "details are required"
+
+case "$issue" in
+	noisy-success|noisy-failure|misleading-output|hard-to-parse|bad-default|other) ;;
+	*) usage_error "invalid issue category: $issue" ;;
+esac
+
+for value_name in output_lines output_bytes; do
+	value="${!value_name}"
+	[[ -z "$value" || "$value" =~ ^[0-9]+$ ]] || usage_error "$value_name must be a non-negative integer"
+done
+[[ -z "$exit_code" || "$exit_code" =~ ^-?[0-9]+$ ]] || usage_error "exit-code must be an integer"
+
+if [[ -n "${AGENT_COMPLAINT_FILE:-}" ]]; then
+	report_file="$AGENT_COMPLAINT_FILE"
+elif [[ -n "${XDG_DATA_HOME:-}" ]]; then
+	report_file="$XDG_DATA_HOME/agent-scripts/complaints.jsonl"
+else
+	report_file="${HOME}/.agent-scripts/complaints.jsonl"
+fi
+report_dir="$(dirname "$report_file")"
+mkdir -p "$report_dir" || { printf 'agent-complaint: cannot create report directory: %s\n' "$report_dir" >&2; exit 1; }
+chmod 700 "$report_dir" 2>/dev/null || true
+
+record="{\"timestamp\":$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),\"command\":$(json_string "$command_text"),\"issue\":$(json_string "$issue"),\"details\":$(json_string "$details")"
+[[ -n "$exit_code" ]] && record+=",\"exit_code\":$exit_code"
+[[ -n "$output_lines" ]] && record+=",\"output_lines\":$output_lines"
+[[ -n "$output_bytes" ]] && record+=",\"output_bytes\":$output_bytes"
+record+='}'
+
+if ! printf '%s\n' "$record" >> "$report_file"; then
+	printf 'agent-complaint: cannot write report: %s\n' "$report_file" >&2
+	exit 1
+fi
+chmod 600 "$report_file" 2>/dev/null || true
+printf 'Complaint recorded.\n'

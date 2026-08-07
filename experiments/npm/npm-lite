@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+readonly NPM_LITE_VERSION="0.0.1"
+
+started_at="$(date +%s)"
+mode="passthrough"
+workflow="other"
+input_bytes="null"
+input_lines="null"
+output_bytes="null"
+output_lines="null"
+retained_log=""
+
+json_string() {
+	local value="$1" char escaped code
+	value="${value//\\/\\\\}"
+	value="${value//\"/\\\"}"
+	for code in {1..31}; do
+		printf -v char '%b' "\\$(printf '%03o' "$code")"
+		printf -v escaped '\\u%04x' "$code"
+		value="${value//$char/$escaped}"
+	done
+	printf '"%s"' "$value"
+}
+
+argv_json() {
+	local separator=""
+	local arg
+	printf '['
+	for arg in "$@"; do
+		printf '%s' "$separator"
+		json_string "$arg"
+		separator=","
+	done
+	printf ']'
+}
+
+record_stats() {
+	[[ "${NPM_LITE_STATS:-1}" != "0" ]] || return 0
+	local finished_at duration_ms stats_file stats_dir argv cwd log_value
+	finished_at="$(date +%s)"
+	duration_ms="$(( (finished_at - started_at) * 1000 ))"
+	stats_file="${NPM_LITE_STATS_FILE:-${HOME}/.agent-scripts/npm-stats.jsonl}"
+	stats_dir="$(dirname "$stats_file")"
+	argv="$(argv_json "$@")"
+	cwd="$(json_string "$PWD")"
+	log_value="null"
+	if [[ -n "$retained_log" ]]; then
+		log_value="$(json_string "$retained_log")"
+	fi
+	{
+		mkdir -p "$stats_dir"
+		chmod 700 "$stats_dir"
+		printf '{"timestamp":%s,"version":%s,"cwd":%s,"argv":%s,"mode":%s,"workflow":%s,"exit":%d,"duration_ms":%d,"input_bytes":%s,"input_lines":%s,"output_bytes":%s,"output_lines":%s,"retained_log":%s}\n' \
+			"$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
+			"$(json_string "$NPM_LITE_VERSION")" \
+			"$cwd" \
+			"$argv" \
+			"$(json_string "$mode")" \
+			"$(json_string "$workflow")" \
+			"$status" \
+			"$duration_ms" \
+			"$input_bytes" \
+			"$input_lines" \
+			"$output_bytes" \
+			"$output_lines" \
+			"$log_value" >> "$stats_file"
+		chmod 600 "$stats_file"
+	} 2>/dev/null || true
+}
+
+extract_test_count() {
+	awk '
+		match($0, /[0-9]+ passing/) {
+			value = substr($0, RSTART, RLENGTH)
+			sub(/ passing$/, "", value)
+			count = value
+		}
+		match($0, /Tests:[[:space:]]+[0-9]+ passed/) {
+			value = substr($0, RSTART, RLENGTH)
+			sub(/^Tests:[[:space:]]+/, "", value)
+			sub(/ passed$/, "", value)
+			count = value
+		}
+		match($0, /Tests[[:space:]]+[0-9]+ passed/) {
+			value = substr($0, RSTART, RLENGTH)
+			sub(/^Tests[[:space:]]+/, "", value)
+			sub(/ passed$/, "", value)
+			count = value
+		}
+		END {
+			if (count != "") {
+				print count
+			}
+		}
+	' "$1"
+}
+
+if (($# == 2)) && [[ "$1" == "run" ]]; then
+	case "$2" in
+		verify|test:unit)
+			mode="compact"
+			workflow="$2"
+			;;
+	esac
+fi
+
+if [[ "$mode" == "passthrough" ]]; then
+	npm "$@"
+	status=$?
+	record_stats "$@"
+	exit "$status"
+fi
+
+log_dir="$PWD/.agent-logs/npm"
+mkdir -p "$log_dir"
+log_file="$(mktemp "$log_dir/npm-lite.XXXXXX")"
+npm "$@" > "$log_file" 2>&1
+status=$?
+finished_at="$(date +%s)"
+duration="$((finished_at - started_at))"
+input_bytes="$(wc -c < "$log_file" | tr -d ' ')"
+input_lines="$(wc -l < "$log_file" | tr -d ' ')"
+visible_file="$(mktemp "$log_dir/npm-lite-visible.XXXXXX")"
+
+if ((status == 0)); then
+	test_count="$(extract_test_count "$log_file")"
+	if [[ -n "$test_count" ]]; then
+		printf 'PASS · %s tests · %s s\n' "$test_count" "$duration" > "$visible_file"
+	else
+		printf 'PASS · %s s\n' "$duration" > "$visible_file"
+	fi
+else
+	retained_log="$log_file"
+	printf 'FAIL · exit %d · %s s\n\n' "$status" "$duration" > "$visible_file"
+	tail -n 80 "$log_file" >> "$visible_file"
+	printf '\nLog: %s\n' "$log_file" >> "$visible_file"
+fi
+
+output_bytes="$(wc -c < "$visible_file" | tr -d ' ')"
+output_lines="$(wc -l < "$visible_file" | tr -d ' ')"
+command cat "$visible_file"
+rm -f "$visible_file"
+if ((status == 0)); then
+	rm -f "$log_file"
+	rmdir "$log_dir" 2>/dev/null || true
+	rmdir "$PWD/.agent-logs" 2>/dev/null || true
+fi
+record_stats "$@"
+exit "$status"

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+printf '%s\n' "$*" >> "${FAKE_NPM_CALLS:?}"
+
+case "${FAKE_NPM_MODE:-success}" in
+	success)
+		printf 'setup output\n'
+		printf '267 passing (4s)\n'
+		;;
+	failure)
+		printf 'setup output\n'
+		printf 'AssertionError: expected true but got false\n' >&2
+		exit 7
+		;;
+	no-count)
+		printf 'completed without a recognized test count\n'
+		;;
+	*)
+		printf 'unknown fake mode\n' >&2
+		exit 9
+		;;
+esac
