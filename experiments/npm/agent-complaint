@@ -129,8 +129,10 @@ fi
 report_dir="$(dirname "$report_file")"
 mkdir -p "$report_dir" || { printf 'agent-complaint: cannot create report directory: %s\n' "$report_dir" >&2; exit 1; }
 chmod 700 "$report_dir" 2>/dev/null || true
+directory_name="${PWD##*/}"
+[[ -n "$directory_name" ]] || directory_name="/"
 
-record="{\"timestamp\":$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),\"command\":$(json_string "$command_text"),\"issue\":$(json_string "$issue"),\"details\":$(json_string "$details")"
+record="{\"timestamp\":$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)"),\"directory\":$(json_string "$directory_name"),\"command\":$(json_string "$command_text"),\"issue\":$(json_string "$issue"),\"details\":$(json_string "$details")"
 [[ -n "$exit_code" ]] && record+=",\"exit_code\":$exit_code"
 [[ -n "$output_lines" ]] && record+=",\"output_lines\":$output_lines"
 [[ -n "$output_bytes" ]] && record+=",\"output_bytes\":$output_bytes"

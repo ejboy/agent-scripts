@@ -28,7 +28,8 @@ Experimental executable: `./npm-lite` (from this directory).
 that coding agents can use when developer tooling is noisy, misleading,
 difficult to parse, unnecessarily expensive, or otherwise unfriendly. It
 accepts a command and a concise description, then appends one JSONL record to
-a local user file. It does not execute or inspect the command, capture output,
+a local user file. Each record includes the basename of the working directory,
+not its full path. It does not execute or inspect the command, capture output,
 or send telemetry anywhere; reports remain local.
 
 Run `./test-agent-complaint.sh` to validate it. If this proves useful, it may

@@ -29,10 +29,12 @@ run_complaint --command 'npm run verify' --issue noisy-success --details '250 te
 	--exit-code 0 --output-lines 1800 --output-bytes 42000 >/dev/null
 run_complaint --command 'tool --flag=$HOME' --details 'A failure was misleading' >/dev/null
 control_value=$'before\001\002\006\010\013\014\016\037after'
+directory_name="${PWD##*/}"
+[[ -n "$directory_name" ]] || directory_name="/"
 run_complaint "$control_value" "$control_value" >/dev/null
 [[ "$(wc -l < "$report_file" | tr -d ' ')" == 4 ]] || fail_test "invocations did not append separately"
 
-python3 - "$report_file" "$control_value" <<'PY' || fail_test "record fields were not preserved"
+python3 - "$report_file" "$control_value" "$directory_name" <<'PY' || fail_test "record fields were not preserved"
 import json
 import sys
 
@@ -46,6 +48,7 @@ assert records[1]["output_lines"] == 1800
 assert records[1]["output_bytes"] == 42000
 assert records[3]["command"] == sys.argv[2]
 assert records[3]["details"] == sys.argv[2]
+assert all(record["directory"] == sys.argv[3] for record in records)
 assert all("cwd" not in record and "environment" not in record and "stdout" not in record and "stderr" not in record for record in records)
 PY
 
