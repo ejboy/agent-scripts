@@ -44,9 +44,12 @@ update_readme_version() {
 	sed -E -i.bak \
 		-e "s#badge/version-[0-9]+\.[0-9]+\.[0-9]+-blue#badge/version-$new_version-blue#" \
 		-e "s#/tree/v[0-9]+\.[0-9]+\.[0-9]+#/tree/v$new_version#" \
-		-e "s#/agent-scripts/v[0-9]+\.[0-9]+\.[0-9]+/scripts/mvn-lite#/agent-scripts/v$new_version/scripts/mvn-lite#" \
 		README.md
 	rm -f -- README.md.bak
+	sed -E -i.bak \
+		-e "s#/agent-scripts/v[0-9]+\.[0-9]+\.[0-9]+/scripts/mvn-lite#/agent-scripts/v$new_version/scripts/mvn-lite#" \
+		docs/installation.md
+	rm -f -- docs/installation.md.bak
 }
 
 printf '%s\n' "$new_version" >"$version_file"
@@ -65,4 +68,4 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 printf '\nUpdated agent-scripts from %s to %s.\n\n' "$current_version" "$new_version"
-git diff -- README.md VERSION scripts/mvn-lite scripts/launch-browser scripts/html-screenshot
+git diff -- README.md docs/installation.md VERSION scripts/mvn-lite scripts/launch-browser scripts/html-screenshot

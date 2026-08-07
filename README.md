@@ -24,6 +24,8 @@ export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 
 Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, and `launch-browser` by name from any project.
 
+See the [installation guide](docs/installation.md) for shell setup, updates, and optional project-local pinning.
+
 ## mvn-lite
 
 *Introverted Maven for coding agents.*
@@ -73,20 +75,6 @@ A standard plugin failure with a clear same-line cause can include:
   Goal: org.example:example-plugin:1.0:run (default)
   Cause: Generated output directory is not writable
 ```
-
-### Pinning mvn-lite in a project
-
-Projects that want to commit a specific version can install a pinned `mvn-lite` at the project root:
-
-```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/ejboy/agent-scripts/v0.1.0/scripts/mvn-lite \
-  -o mvn-lite
-chmod +x mvn-lite
-./mvn-lite test
-```
-
-Commit `mvn-lite` and add `.agent-logs/` to `.gitignore`.
 
 ### Usage
 
@@ -159,18 +147,7 @@ html-screenshot --scale 2 https://example.com
 
 It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait; use `--verbose` to retain Chrome diagnostics.
 
-## Maintaining releases
-
-The root `VERSION` is the canonical release version. Public scripts embed that
-version so copied files retain their identity and provenance. Maintainers can update
-all registered scripts and run validation with:
-
-```bash
-./maintainers/bump-version 0.2.0
-```
-
-The maintainer command updates files and shows the resulting diff; it does not
-commit or tag the release.
+Release maintenance is documented in [maintainers/README.md](maintainers/README.md).
 
 ## Status
 

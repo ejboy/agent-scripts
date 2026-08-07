@@ -38,7 +38,7 @@ grep -Fq "badge/version-$expected_version-blue" "$root/README.md" ||
 	fail_test "README version badge does not match VERSION"
 grep -Fq "/tree/v$expected_version)" "$root/README.md" ||
 	fail_test "README version badge link does not match VERSION"
-grep -Fq "/agent-scripts/v$expected_version/scripts/mvn-lite" "$root/README.md" ||
-	fail_test "README installation URL does not match VERSION"
+grep -Fq "/agent-scripts/v$expected_version/scripts/mvn-lite" "$root/docs/installation.md" ||
+	fail_test "installation guide URL does not match VERSION"
 
 printf 'version tests passed (%s)\n' "$expected_version"
