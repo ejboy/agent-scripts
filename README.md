@@ -13,6 +13,17 @@ agent-scripts is a collection of small, local-first command-line utilities for A
 Public, standalone utilities live under `scripts/`. Repository release tooling lives
 separately under `maintainers/` and is not part of the public utility interface.
 
+## Installation
+
+Clone the repository and add its `scripts/` directory to `PATH`:
+
+```bash
+git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-scripts
+export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
+```
+
+Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, and `launch-browser` by name from any project.
+
 ## mvn-lite
 
 *Introverted Maven for coding agents.*
@@ -23,7 +34,7 @@ separately under `maintainers/` and is not part of the public utility interface.
 
 Real-project results:
 
-- [Finrecord compatibility experiment](experiments/test/PVR-LABS-FINANCIAL-ENGINE-APP.md): successful output fell from 6,753 to 16 bytes—more than 99.7%.
+- [Financial engine app Maven compatibility experiment](experiments/test/PVR-LABS-FINANCIAL-ENGINE-APP.md): successful output fell from 6,753 to 16 bytes—more than 99.7%.
 - [Scriptella ETL smoke test](experiments/test/SCRIPTELLA-MVN-LITE-SMOKE-TEST.md): a successful JDK 17 reactor test fell from hundreds of lines to one.
 
 It stays close to Maven:
@@ -63,9 +74,9 @@ A standard plugin failure with a clear same-line cause can include:
   Cause: Generated output directory is not writable
 ```
 
-## Installation
+### Pinning mvn-lite in a project
 
-For shared projects, install a pinned version at the project root:
+Projects that want to commit a specific version can install a pinned `mvn-lite` at the project root:
 
 ```bash
 curl -fsSL \
@@ -77,26 +88,14 @@ chmod +x mvn-lite
 
 Commit `mvn-lite` and add `.agent-logs/` to `.gitignore`.
 
-For personal use across projects, install it on `PATH` instead:
+### Usage
 
 ```bash
-mkdir -p ~/.local/bin
-curl -fsSL \
-  https://raw.githubusercontent.com/ejboy/agent-scripts/v0.1.0/scripts/mvn-lite \
-  -o ~/.local/bin/mvn-lite
-chmod +x ~/.local/bin/mvn-lite
-```
-
-Repositories that group utilities under `scripts/` may use `./scripts/mvn-lite`.
-
-## Usage
-
-```bash
-./mvn-lite clean verify
-./mvn-lite -pl app -am test
-./mvn-lite --full dependency:tree
-./mvn-lite --keep-log verify
-./mvn-lite --help-mvn-lite
+mvn-lite clean verify
+mvn-lite -pl app -am test
+mvn-lite --full dependency:tree
+mvn-lite --keep-log verify
+mvn-lite --help-mvn-lite
 ```
 
 The wrapper options are:
@@ -122,7 +121,7 @@ Maven's informational flags always pass through with ordinary output and unchang
 --show-version
 ```
 
-## Scope and failure logs
+### Scope and failure logs
 
 Compact mode is designed primarily for builds and tests. Reporting and inspection goals such as `dependency:tree`, `help:effective-pom`, and `help:active-profiles` may need `--full`.
 
@@ -137,11 +136,11 @@ A project may optionally define its own `./scripts/build` wrapper for project-sp
 `scripts/launch-browser` is a separate macOS utility for starting Google Chrome with DevTools enabled at `http://127.0.0.1:9222`. It defaults to detached headless mode.
 
 ```bash
-./scripts/launch-browser
-./scripts/launch-browser --visible
-./scripts/launch-browser --foreground --isolated
-./scripts/launch-browser --stop
-./scripts/launch-browser --help
+launch-browser
+launch-browser --visible
+launch-browser --foreground --isolated
+launch-browser --stop
+launch-browser --help
 ```
 
 Successful detached launches record their service label and PID in `~/.browser-testing-profile/launch-state`, alongside the existing persistent browser profile. `--stop` validates that the recorded service uses the `xyz.pvrlabs.browser.*` prefix, asks `launchctl` to stop it, and verifies that both the recorded PID and DevTools endpoint have stopped before removing state. If the recorded PID still owns port `9222` after service removal, the script terminates that process directly. It never kills an arbitrary process merely because it uses port `9222`.
@@ -153,9 +152,9 @@ The temporary launch log is removed when Chrome exits normally; abnormal-exit lo
 `scripts/html-screenshot` is a one-shot headless Chrome renderer for local HTML files, `file://` URLs, and HTTP(S) URLs. It does not start or manage a reusable browser instance.
 
 ```bash
-./scripts/html-screenshot examples/page.html
-./scripts/html-screenshot --width 1440 --height 900 --wait 1000 -o /tmp/page.png examples/page.html
-./scripts/html-screenshot --scale 2 https://example.com
+html-screenshot examples/page.html
+html-screenshot --width 1440 --height 900 --wait 1000 -o /tmp/page.png examples/page.html
+html-screenshot --scale 2 https://example.com
 ```
 
 It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait; use `--verbose` to retain Chrome diagnostics.
