@@ -13,6 +13,15 @@ output_bytes="null"
 output_lines="null"
 retained_log=""
 
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 2
+}
+
+warn() {
+	printf 'Warning: %s\n' "$1" >&2
+}
+
 json_string() {
 	local value="$1" char escaped code
 	value="${value//\\/\\\\}"
@@ -115,15 +124,29 @@ if [[ "$mode" == "passthrough" ]]; then
 fi
 
 log_dir="$PWD/.agent-logs/npm"
-mkdir -p "$log_dir"
-log_file="$(mktemp "$log_dir/npm-lite.XXXXXX")"
+original_umask="$(umask)"
+umask 077
+mkdir -p "$log_dir" || fail "could not create npm log directory: $log_dir"
+if ! log_file="$(mktemp "$log_dir/npm-lite.XXXXXX")"; then
+	umask "$original_umask"
+	rmdir "$log_dir" 2>/dev/null || true
+	rmdir "$PWD/.agent-logs" 2>/dev/null || true
+	fail "could not create npm log in: $log_dir"
+fi
+if ! visible_file="$(mktemp "$log_dir/npm-lite-visible.XXXXXX")"; then
+	rm -f -- "$log_file" || warn "could not remove incomplete npm log: $log_file"
+	umask "$original_umask"
+	rmdir "$log_dir" 2>/dev/null || true
+	rmdir "$PWD/.agent-logs" 2>/dev/null || true
+	fail "could not create npm summary file in: $log_dir"
+fi
+umask "$original_umask"
 npm "$@" > "$log_file" 2>&1
 status=$?
 finished_at="$(date +%s)"
 duration="$((finished_at - started_at))"
 input_bytes="$(wc -c < "$log_file" | tr -d ' ')"
 input_lines="$(wc -l < "$log_file" | tr -d ' ')"
-visible_file="$(mktemp "$log_dir/npm-lite-visible.XXXXXX")"
 
 if ((status == 0)); then
 	test_count="$(extract_test_count "$log_file")"
@@ -142,11 +165,15 @@ fi
 output_bytes="$(wc -c < "$visible_file" | tr -d ' ')"
 output_lines="$(wc -l < "$visible_file" | tr -d ' ')"
 command cat "$visible_file"
-rm -f "$visible_file"
+rm -f -- "$visible_file" || warn "could not remove npm summary file: $visible_file"
 if ((status == 0)); then
-	rm -f "$log_file"
-	rmdir "$log_dir" 2>/dev/null || true
-	rmdir "$PWD/.agent-logs" 2>/dev/null || true
+	if rm -f -- "$log_file"; then
+		rmdir "$log_dir" 2>/dev/null || true
+		rmdir "$PWD/.agent-logs" 2>/dev/null || true
+	else
+		retained_log="$log_file"
+		warn "could not remove successful npm log: $log_file"
+	fi
 fi
 record_stats "$@"
 exit "$status"

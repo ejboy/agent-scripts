@@ -2,7 +2,7 @@
 
 set -uo pipefail
 
-printf '%s\n' "$*" >> "${FAKE_NPM_CALLS:?}"
+printf '%s\0' "$#" "$@" >> "${FAKE_NPM_CALLS:?}"
 
 case "${FAKE_NPM_MODE:-success}" in
 	success)

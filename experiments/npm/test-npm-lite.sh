@@ -8,6 +8,7 @@ fake_bin="$test_root/bin"
 project_dir="$test_root/project"
 stats_file="$test_root/npm-stats.jsonl"
 calls_file="$test_root/npm-calls.txt"
+real_mktemp="$(command -v mktemp)"
 
 cleanup() {
 	rm -rf "$test_root"
@@ -51,6 +52,58 @@ control_value=$'argument\001\002\006\010\013\014\016\037value'
 output="$(FAKE_NPM_MODE=success run_lite --loglevel "$control_value")"
 [[ "$output" == $'setup output\n267 passing (4s)' ]] || fail_test "control-character argument did not pass through"
 
+: > "$project_dir/.agent-logs"
+calls_size="$(wc -c < "$calls_file" | tr -d ' ')"
+set +e
+output="$(FAKE_NPM_MODE=success run_lite run verify 2>&1)"
+status=$?
+set -e
+[[ "$status" == 2 ]] || fail_test "log-directory failure status was not 2"
+[[ "$output" == *"Error: could not create npm log directory:"* ]] || fail_test "log-directory failure was unclear"
+[[ "$(wc -c < "$calls_file" | tr -d ' ')" == "$calls_size" ]] || fail_test "npm ran after log-directory creation failed"
+rm -f "$project_dir/.agent-logs"
+
+printf '#!/usr/bin/env bash\nexit 1\n' > "$fake_bin/mktemp"
+chmod +x "$fake_bin/mktemp"
+set +e
+output="$(FAKE_NPM_MODE=success run_lite run verify 2>&1)"
+status=$?
+set -e
+rm -f "$fake_bin/mktemp"
+[[ "$status" == 2 ]] || fail_test "log-creation failure status was not 2"
+[[ "$output" == *"Error: could not create npm log in:"* ]] || fail_test "log-creation failure was unclear"
+[[ "$(wc -c < "$calls_file" | tr -d ' ')" == "$calls_size" ]] || fail_test "npm ran after log creation failed"
+[[ ! -d "$project_dir/.agent-logs" ]] || fail_test "log-creation failure left empty log directories"
+
+export FAKE_MKTEMP_MARKER="$test_root/mktemp-marker"
+export REAL_MKTEMP="$real_mktemp"
+printf '%s\n' \
+	'#!/usr/bin/env bash' \
+	'if [[ ! -e "${FAKE_MKTEMP_MARKER:?}" ]]; then' \
+	'  : > "${FAKE_MKTEMP_MARKER}"' \
+	'  exec "${REAL_MKTEMP:?}" "$@"' \
+	'fi' \
+	'exit 1' > "$fake_bin/mktemp"
+chmod +x "$fake_bin/mktemp"
+set +e
+output="$(FAKE_NPM_MODE=success run_lite run verify 2>&1)"
+status=$?
+set -e
+rm -f "$fake_bin/mktemp"
+[[ "$status" == 2 ]] || fail_test "summary-creation failure status was not 2"
+[[ "$output" == *"Error: could not create npm summary file in:"* ]] || fail_test "summary-creation failure was unclear"
+[[ "$(wc -c < "$calls_file" | tr -d ' ')" == "$calls_size" ]] || fail_test "npm ran after summary creation failed"
+[[ ! -d "$project_dir/.agent-logs" ]] || fail_test "summary-creation failure left temporary files"
+
+stderr_file="$test_root/passthrough-stderr"
+set +e
+output="$(FAKE_NPM_MODE=failure run_lite install left-pad 2> "$stderr_file")"
+status=$?
+set -e
+[[ "$status" == 7 ]] || fail_test "pass-through failure exit status was not preserved"
+[[ "$output" == "setup output" ]] || fail_test "pass-through stdout changed"
+[[ "$(<"$stderr_file")" == "AssertionError: expected true but got false" ]] || fail_test "pass-through stderr changed"
+
 set +e
 output="$(FAKE_NPM_MODE=failure run_lite run verify 2>&1)"
 status=$?
@@ -61,21 +114,37 @@ set -e
 [[ "$output" == *"Log: $project_dir/.agent-logs/npm/"* ]] || fail_test "failure log path missing"
 find "$project_dir/.agent-logs/npm" -type f -name 'npm-lite.*' | grep -q . || fail_test "failure log was not retained"
 
-[[ "$(wc -l < "$stats_file" | tr -d ' ')" == 6 ]] || fail_test "unexpected stats entry count"
+[[ "$(wc -l < "$stats_file" | tr -d ' ')" == 7 ]] || fail_test "unexpected stats entry count"
 grep -Fq '"mode":"compact","workflow":"verify","exit":0' "$stats_file" || fail_test "verify stats missing"
 grep -Fq '"mode":"compact","workflow":"test:unit","exit":0' "$stats_file" || fail_test "unit stats missing"
 grep -Fq '"mode":"passthrough","workflow":"other","exit":0' "$stats_file" || fail_test "pass-through stats missing"
 grep -Eq '"input_bytes":[0-9]+.*"output_bytes":[0-9]+' "$stats_file" || fail_test "compact measurements missing"
 grep -Fq '"input_bytes":null,"input_lines":null,"output_bytes":null,"output_lines":null' "$stats_file" || fail_test "pass-through measurements should be null"
-python3 - "$stats_file" "$control_value" <<'PY' || fail_test "stats JSONL was invalid or lost control characters"
+python3 - "$stats_file" "$calls_file" "$control_value" <<'PY' || fail_test "stats or npm argument records were invalid"
 import json
 import sys
 
 records = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8")]
-assert records[4]["argv"][-1] == sys.argv[2]
+assert records[4]["argv"][-1] == sys.argv[3]
+
+fields = open(sys.argv[2], "rb").read().split(b"\0")
+assert fields.pop() == b""
+calls = []
+while fields:
+    count = int(fields.pop(0))
+    calls.append([fields.pop(0).decode() for _ in range(count)])
+assert calls == [
+    ["run", "verify"],
+    ["run", "test:unit"],
+    ["install", "left-pad"],
+    ["run", "verify", "--", "--watch"],
+    ["--loglevel", sys.argv[3]],
+    ["install", "left-pad"],
+    ["run", "verify"],
+]
 PY
 
 NPM_LITE_STATS=0 FAKE_NPM_MODE=success run_lite run verify >/dev/null
-[[ "$(wc -l < "$stats_file" | tr -d ' ')" == 6 ]] || fail_test "stats opt-out was ignored"
+[[ "$(wc -l < "$stats_file" | tr -d ' ')" == 7 ]] || fail_test "stats opt-out was ignored"
 
 printf 'npm-lite experiment tests passed\n'
