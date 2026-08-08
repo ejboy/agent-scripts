@@ -79,6 +79,27 @@ case "${FAKE_MODE:-success}" in
 		done
 		exit 7
 		;;
+	read-stdin)
+		if [[ -n "${FAKE_STDIN_PID_FILE:-}" ]]; then
+			printf '%s\n' "$$" >"$FAKE_STDIN_PID_FILE"
+		fi
+		if IFS= read -r input; then
+			printf 'unexpected stdin: %s\n' "$input" >&2
+			exit 19
+		fi
+		printf '%s\n' '[INFO] BUILD SUCCESS'
+		printf '%s\n' '[INFO] Total time: 1.234 s'
+		exit 0
+		;;
+	read-tty)
+		if [[ -n "${FAKE_STDIN_PID_FILE:-}" ]]; then
+			printf '%s\n' "$$" >"$FAKE_STDIN_PID_FILE"
+		fi
+		IFS= read -r input </dev/tty || true
+		printf '%s\n' '[INFO] BUILD SUCCESS'
+		printf '%s\n' '[INFO] Total time: 1.234 s'
+		exit 0
+		;;
 	version)
 		printf '%s\n' 'Apache Maven 3.9.9'
 		printf '%s\n' 'Maven home: /opt/maven'
@@ -94,12 +115,14 @@ case "${FAKE_MODE:-success}" in
 		wait_pid=$!
 		printf '%s\n' "$$" >"$FAKE_SIGNAL_PID_FILE"
 		terminate_for_test() {
+			local status="$1"
 			kill -TERM "$wait_pid" 2>/dev/null || true
 			wait "$wait_pid" 2>/dev/null || true
 			printf '%s\n' terminated >"$FAKE_SIGNAL_EXIT_FILE"
-			exit 143
+			exit "$status"
 		}
-		trap terminate_for_test TERM
+		trap 'terminate_for_test 130' INT
+		trap 'terminate_for_test 143' TERM
 		wait "$wait_pid"
 		;;
 esac

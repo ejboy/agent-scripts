@@ -104,7 +104,48 @@ if find "$project/.agent-logs" -type f -name 'maven-*.log.*' -print -quit | grep
 	fail_test "successful compact log was not removed"
 fi
 
+export FAKE_MODE=read-stdin
+output="$(printf 'terminal input\n' | run_from_project test)"
+[[ "$output" == "PASS · 1.234 s" ]] || fail_test "compact Maven inherited stdin: $output"
+if command -v script >/dev/null 2>&1; then
+	stdin_pid_file="$test_root/stdin-pid"
+	stdin_timeout_file="$test_root/stdin-timeout"
+	stdin_pty_launcher="$test_root/stdin-pty-launcher"
+	cat >"$stdin_pty_launcher" <<'EOF'
+#!/usr/bin/env bash
+set -uo pipefail
+cd "$FAKE_PROJECT_DIR" || exit 1
+wrapper_pid="$$"
+(
+	for _ in {1..40}; do
+		kill -0 "$wrapper_pid" 2>/dev/null || exit 0
+		sleep 0.05
+	done
+	printf 'timed out\n' >"$FAKE_STDIN_TIMEOUT_FILE"
+	if [[ -f "$FAKE_STDIN_PID_FILE" ]]; then
+		read -r child_pid <"$FAKE_STDIN_PID_FILE"
+		kill -TERM "$child_pid" 2>/dev/null || true
+		kill -CONT "$child_pid" 2>/dev/null || true
+	fi
+) &
+exec "$MVN_LITE_RUNNER" test
+EOF
+	chmod +x "$stdin_pty_launcher"
+	export FAKE_STDIN_PID_FILE="$stdin_pid_file"
+	export FAKE_STDIN_TIMEOUT_FILE="$stdin_timeout_file"
+	export MVN_LITE_RUNNER="$runner"
+	export FAKE_MODE=read-tty
+	if script -q /dev/null true </dev/null >/dev/null 2>&1; then
+		output="$(cd "$test_root" && script -q /dev/null ./stdin-pty-launcher </dev/null 2>&1)"
+	else
+		output="$(cd "$test_root" && script -q -c ./stdin-pty-launcher /dev/null </dev/null 2>&1)"
+	fi
+	[[ "$output" == *"PASS · 1.234 s"* ]] || fail_test "compact Maven did not complete under a PTY: $output"
+	[[ ! -f "$stdin_timeout_file" ]] || fail_test "compact Maven stopped while reading /dev/tty"
+fi
+
 rm -f "$project/mvnw"
+export FAKE_MODE=success
 output="$(run_from_project)"
 [[ "$output" == "PASS · 1.234 s" ]] || fail_test "no-argument invocation failed: $output"
 assert_args -B -ntp -Dstyle.color=never
@@ -403,37 +444,51 @@ EOF
 chmod +x "$project/mvnw"
 signal_pid_file="$test_root/signal-pid"
 signal_exit_file="$test_root/signal-exit"
+signal_timeout_file="$test_root/signal-timeout"
 signal_launcher="$test_root/signal-launcher"
-rm -f "$signal_pid_file" "$signal_exit_file"
 cat >"$signal_launcher" <<'EOF'
 #!/usr/bin/env bash
 set -u
 runner="$1"
 pid_file="$2"
+signal="$3"
+timeout_file="$4"
 (
 	for _ in {1..50}; do
 		[[ -f "$pid_file" ]] && break
 		sleep 0.05
 	done
-	kill -TERM "$$"
+	kill "-$signal" "$$"
+	for _ in {1..20}; do
+		kill -0 "$$" 2>/dev/null || exit 0
+		sleep 0.05
+	done
+	printf '%s\n' "$signal" >"$timeout_file"
+	kill -TERM "$$" 2>/dev/null || true
 ) &
 exec "$runner" test
 EOF
 chmod +x "$signal_launcher"
-set +e
-output="$(
-	cd "$project" &&
-	FAKE_MODE=wait-for-signal \
-	FAKE_SIGNAL_PID_FILE="$signal_pid_file" \
-	FAKE_SIGNAL_EXIT_FILE="$signal_exit_file" \
-	PATH="$bin_dir:$PATH" \
-	"$(command -v bash)" "$signal_launcher" "$runner" "$signal_pid_file" 2>&1
-)"
-status=$?
-set -e
-[[ "$status" -eq 143 ]] || fail_test "SIGTERM status was $status"
-[[ -f "$signal_pid_file" ]] || fail_test "signal fixture did not start"
-[[ -f "$signal_exit_file" ]] || fail_test "Maven child did not complete signal cleanup"
+for signal_case in INT:130 TERM:143; do
+	signal="${signal_case%%:*}"
+	expected_status="${signal_case##*:}"
+	rm -f "$signal_pid_file" "$signal_exit_file" "$signal_timeout_file"
+	set +e
+	output="$(
+		cd "$project" &&
+		FAKE_MODE=wait-for-signal \
+		FAKE_SIGNAL_PID_FILE="$signal_pid_file" \
+		FAKE_SIGNAL_EXIT_FILE="$signal_exit_file" \
+		PATH="$bin_dir:$PATH" \
+		"$(command -v bash)" "$signal_launcher" "$runner" "$signal_pid_file" "$signal" "$signal_timeout_file" 2>&1
+	)"
+	status=$?
+	set -e
+	[[ "$status" -eq "$expected_status" ]] || fail_test "SIG$signal status was $status"
+	[[ -f "$signal_pid_file" ]] || fail_test "SIG$signal fixture did not start"
+	[[ -f "$signal_exit_file" ]] || fail_test "Maven child did not complete SIG$signal cleanup"
+	[[ ! -f "$signal_timeout_file" ]] || fail_test "SIG$signal did not stop mvn-lite promptly"
+done
 rm -f "$project/mvnw"
 
 mv "$bin_dir/mvn" "$bin_dir/mvn.saved"

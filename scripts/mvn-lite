@@ -289,9 +289,14 @@ extract_failure_summary() {
 forward_signal() {
 	local signal="$1"
 	local status="$2"
+	local child_signal="$signal"
+
+	if [[ "$signal" == INT ]]; then
+		child_signal=TERM
+	fi
 
 	if [[ -n "$child_pid" ]] && kill -0 "$child_pid" 2>/dev/null; then
-		kill "-$signal" "$child_pid" 2>/dev/null || true
+		kill "-$child_signal" "$child_pid" 2>/dev/null || true
 		# A child that ignores the signal can keep this wait blocked; escalation is intentionally omitted.
 		wait "$child_pid" 2>/dev/null || true
 	fi
@@ -315,7 +320,7 @@ log_file="$(umask 077; mktemp "$log_template")" ||
 trap 'forward_signal INT 130' INT
 trap 'forward_signal TERM 143' TERM
 
-"${command[@]}" >"$log_file" 2>&1 &
+"${command[@]}" </dev/null >"$log_file" 2>&1 &
 child_pid=$!
 wait "$child_pid"
 status=$?
