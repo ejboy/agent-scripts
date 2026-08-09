@@ -110,6 +110,28 @@ The data may support experiments separate from `npm-lite`:
    process identities and state.
 5. Validator-specific guidance for legacy markup and mixed line endings.
 
+### Focused Go test measurements
+
+Date collected: 2026-08-08
+
+Two successful packages were run once with ordinary output and once with
+verbose output. Both commands used `-count=1` so Go's test-result cache could
+not skip execution. Output was captured to temporary files and measured rather
+than printed into agent context.
+
+| Project/package | Test functions in package | Ordinary | Verbose | Byte reduction |
+| --- | ---: | ---: | ---: | ---: |
+| AIBadger `internal/scanner` | 121 | 57 bytes, 1 line | 21,054 bytes, 330 lines | 99.7% |
+| StatLite `internal/config` | 22 | 56 bytes, 1 line | 3,319 bytes, 60 lines | 98.3% |
+
+The measurement establishes the cost of successful `go test -v` for these
+packages, but does not by itself justify a new wrapper. Ordinary `go test`
+already produces one compact package-status line, so a `go-test-lite` utility
+would need to add reliable structured failure summaries, useful aggregate
+counts, or another material advantage. Otherwise the appropriate fix is to
+remove unnecessary `-v` flags in project-local defaults and retain a separate
+verbose option for diagnosis.
+
 ## Limitations
 
 - All three npm observations came from one anonymized workspace.
@@ -118,5 +140,7 @@ The data may support experiments separate from `npm-lite`:
 - Only successful runs were recorded in this subset.
 - One output estimate was already affected by truncation.
 - Test counts and output vary as the project changes.
+- The Go measurements cover two focused successful packages, not full
+  workspaces or failure output.
 - Token reduction must be measured after implementation; it is not inferred as
   runtime or build-performance improvement.

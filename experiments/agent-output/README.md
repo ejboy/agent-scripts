@@ -1,7 +1,13 @@
-# npm-lite Experiment
+# Agent Output Experiments
 
-Experimental thin wrapper for reducing coding-agent output from two noisy npm
-scripts:
+This directory contains the active roadmap and experiments for reducing
+low-value coding-agent tool output. `npm-lite` is the current implementation
+track; `agent-complaint` collects local evidence for future candidates.
+
+## npm-lite
+
+`npm-lite` is an experimental thin wrapper for reducing coding-agent output
+from two noisy npm scripts:
 
 ```text
 npm-lite run verify
@@ -11,16 +17,17 @@ npm-lite run test:unit
 Only those exact invocations are candidates for compact output. Every other
 invocation must pass through to `npm` with unchanged arguments and exit status.
 
-This experiment is self-contained and is not part of the public `scripts/`
+These experiments are self-contained and are not part of the public `scripts/`
 interface or repository release tooling.
 
 Documents:
 
-- [PLAN.md](PLAN.md) — proposed behavior and implementation sequence
+- [PLAN.md](PLAN.md) — broader agent-friendly tooling roadmap and detailed
+  `npm-lite` graduation plan
 - [LOCAL-OBSERVATIONS.md](LOCAL-OBSERVATIONS.md) — anonymized evidence motivating
   the experiment
 
-Experimental executable: `./npm-lite` (from this directory).
+Experimental npm executable: `./npm-lite` (from this directory).
 
 ## agent-complaint
 
@@ -50,5 +57,7 @@ the public version.
 
 ```bash
 ./test-npm-lite.sh
-shellcheck --severity=warning ./npm-lite ./test-npm-lite.sh ./fixtures/fake-npm
+./test-agent-complaint.sh
+shellcheck --severity=warning ./npm-lite ./test-npm-lite.sh ./fixtures/fake-npm \
+  ./agent-complaint ./test-agent-complaint.sh
 ```
