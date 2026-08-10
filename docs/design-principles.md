@@ -36,6 +36,10 @@ A committed wrapper is reviewable and versioned with an application. It can be r
 
 The scripts use Bash and standard operating-system tools. They do not call an LLM, require an API key, send telemetry, inspect POMs, or make nondeterministic guesses.
 
+## Developer-environment focus
+
+`agent-scripts` targets normal developer workstations, primarily macOS and mainstream Linux distributions used for local development and agentic coding workflows. It may rely on common developer and operating-system utilities that are normally present in those environments. Minimal containers, stripped-down distributions, embedded systems, and unusual shell environments are out of scope unless real usage demonstrates a need. Prefer simple implementations for supported developer machines over additional complexity for hypothetical limited environments.
+
 ## Generic scripts versus project wrappers
 
 Generic cross-project wrappers—such as compact Maven output and predictable browser startup—belong here. Module names, test tiers, ports, services, and verification policy belong in the application repository.
