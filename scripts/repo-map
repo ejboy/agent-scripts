@@ -120,11 +120,11 @@ initialize_builtin() {
 		repo_notes=('')
 	fi
 	if ((${#command_names[@]} > 0)); then
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' "${command_names[@]}")
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' 'npm-lite' "${command_names[@]}")
 	else
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map')
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' 'npm-lite')
 	fi
 	if ((${#command_descriptions[@]} > 0)); then
 		command_descriptions=(
@@ -132,6 +132,7 @@ initialize_builtin() {
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
 			'Local repository and agent-capability discovery'
+			'Compact output for selected npm test and verification workflows'
 			"${command_descriptions[@]}"
 		)
 	else
@@ -140,9 +141,10 @@ initialize_builtin() {
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
 			'Local repository and agent-capability discovery'
+			'Compact output for selected npm test and verification workflows'
 		)
 	fi
-	for command_name in mvn-lite html-screenshot launch-browser repo-map; do
+	for command_name in mvn-lite html-screenshot launch-browser repo-map npm-lite; do
 		if [[ ! -x "$SCRIPT_DIR/$command_name" ]]; then
 			for index in "${!command_names[@]}"; do
 				if [[ "${command_names[index]}" == "$command_name" && "${command_repos[index]}" == "$BUILTIN_REPOSITORY_NAME" ]]; then

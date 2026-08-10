@@ -14,6 +14,24 @@ case "${FAKE_NPM_MODE:-success}" in
 		printf 'AssertionError: expected true but got false\n' >&2
 		exit 7
 		;;
+	long-failure)
+		for line in {1..119}; do
+			printf 'diagnostic line %d\n' "$line"
+		done
+		printf 'diagnostic line 120 '
+		printf '%*s' 20000 '' | tr ' ' x
+		printf '\n'
+		exit 8
+		;;
+	signal-wait)
+		trap 'exit 130' INT
+		trap 'exit 143' TERM
+		sleep 30 &
+		child_pid=$!
+		printf '%s\n' "$$" >"${FAKE_NPM_PID_FILE:?}"
+		printf '%s\n' "$child_pid" >"${FAKE_NPM_CHILD_PID_FILE:?}"
+		wait "$child_pid"
+		;;
 	no-count)
 		printf 'completed without a recognized test count\n'
 		;;

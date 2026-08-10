@@ -41,7 +41,7 @@ ln -s "$root/scripts/repo-map" "$symlink_path"
 [[ "$(HOME="$test_root/home" "$symlink_path" get agent-scripts)" == "$expected_root" ]] || fail_test 'symlinked repo-map resolved the wrong built-in path'
 output="$(run_map show agent-scripts)"
 [[ "$output" == *'Description: Local utilities for AI-assisted development'* ]] || fail_test 'built-in description was missing'
-for builtin_command in mvn-lite html-screenshot launch-browser repo-map; do
+for builtin_command in mvn-lite html-screenshot launch-browser repo-map npm-lite; do
 	[[ "$output" == *"$builtin_command"* ]] || fail_test "built-in command was missing: $builtin_command"
 done
 output="$(run_map commands)"

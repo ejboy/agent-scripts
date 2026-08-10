@@ -1,6 +1,6 @@
 # Agent-Friendly Tooling Plan
 
-Status: Active
+Status: Historical after `npm-lite` graduation; `agent-complaint` remains experimental.
 Created: 2026-08-07
 Expanded: 2026-08-08
 
@@ -10,9 +10,9 @@ Develop a small, evidence-driven set of utilities that reduce agent-visible
 tool output without hiding actionable failures or replacing project-specific
 build and verification policy.
 
-`npm-lite` is the current implementation track. Other candidates remain
-investigations until local observations and measurements justify a public
-utility.
+`npm-lite` was the implementation track and graduated to `scripts/npm-lite`.
+Other candidates remain investigations until local observations and
+measurements justify a public utility.
 
 ## Evidence
 

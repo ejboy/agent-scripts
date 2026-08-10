@@ -1,13 +1,14 @@
 # Agent Output Experiments
 
-This directory contains the active roadmap and experiments for reducing
-low-value coding-agent tool output. `npm-lite` is the current implementation
-track; `agent-complaint` collects local evidence for future candidates.
+This directory preserves the roadmap and experiments for reducing low-value
+coding-agent tool output. `npm-lite` graduated to the public
+[`scripts/npm-lite`](../../scripts/npm-lite) interface. `agent-complaint` remains
+explicitly experimental and collects local evidence for future candidates.
 
 ## npm-lite
 
-`npm-lite` is an experimental thin wrapper for reducing coding-agent output
-from two noisy npm scripts:
+The `npm-lite` experiment produced a thin wrapper for reducing coding-agent
+output from two noisy npm scripts:
 
 ```text
 npm-lite run verify
@@ -17,8 +18,9 @@ npm-lite run test:unit
 Only those exact invocations are candidates for compact output. Every other
 invocation must pass through to `npm` with unchanged arguments and exit status.
 
-These experiments are self-contained and are not part of the public `scripts/`
-interface or repository release tooling.
+The production implementation now lives in `scripts/npm-lite`; the experiment
+history below remains for context and evidence. It is part of the public
+interface, not repository release tooling.
 
 Documents:
 
@@ -26,8 +28,6 @@ Documents:
   `npm-lite` graduation plan
 - [LOCAL-OBSERVATIONS.md](LOCAL-OBSERVATIONS.md) — anonymized evidence motivating
   the experiment
-
-Experimental npm executable: `./npm-lite` (from this directory).
 
 ## agent-complaint
 
@@ -42,22 +42,9 @@ or send telemetry anywhere; reports remain local.
 Run `./test-agent-complaint.sh` to validate it. If this proves useful, it may
 eventually graduate into the public `agent-scripts` collection.
 
-## Instrumentation
-
-Every invocation appends one JSON object to
-`~/.agent-scripts/npm-stats.jsonl`. Compact runs record raw and visible byte and
-line counts. Pass-through runs record the invocation, duration, and exit status
-without piping or measuring npm output.
-
-Set `NPM_LITE_STATS=0` to disable collection or `NPM_LITE_STATS_FILE` to choose a
-different file. Instrumentation is experiment-only and will not graduate into
-the public version.
-
 ## Validation
 
 ```bash
-./test-npm-lite.sh
 ./test-agent-complaint.sh
-shellcheck --severity=warning ./npm-lite ./test-npm-lite.sh ./fixtures/fake-npm \
-  ./agent-complaint ./test-agent-complaint.sh
+shellcheck --severity=warning ./agent-complaint ./test-agent-complaint.sh
 ```

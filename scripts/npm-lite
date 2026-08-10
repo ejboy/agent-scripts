@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 
+# npm-lite 0.1.0
+# Compact npm output for selected test and verification workflows.
+# https://github.com/ejboy/agent-scripts
+
 set -uo pipefail
 
-readonly NPM_LITE_VERSION="0.0.1"
+readonly AGENT_SCRIPTS_VERSION="0.1.0"
+readonly FAILURE_EXCERPT_BYTES=7000
+readonly LOG_RETENTION_MINUTES=10080
+: "$AGENT_SCRIPTS_VERSION"
 
 started_at="$(date +%s)"
-mode="passthrough"
-workflow="other"
-input_bytes="null"
-input_lines="null"
-output_bytes="null"
-output_lines="null"
-retained_log=""
+child_pid=""
+log_dir=""
+log_file=""
+visible_file=""
 
 fail() {
 	printf 'Error: %s\n' "$1" >&2
@@ -22,62 +26,30 @@ warn() {
 	printf 'Warning: %s\n' "$1" >&2
 }
 
-json_string() {
-	local value="$1" char escaped code
-	value="${value//\\/\\\\}"
-	value="${value//\"/\\\"}"
-	for code in {1..31}; do
-		printf -v char '%b' "\\$(printf '%03o' "$code")"
-		printf -v escaped '\\u%04x' "$code"
-		value="${value//$char/$escaped}"
-	done
-	printf '"%s"' "$value"
+prune_old_logs() {
+	find "$log_dir" -type f -name 'npm-lite.*' -mmin "+$LOG_RETENTION_MINUTES" \
+		-exec rm -f -- {} + 2>/dev/null || true
 }
 
-argv_json() {
-	local separator=""
-	local arg
-	printf '['
-	for arg in "$@"; do
-		printf '%s' "$separator"
-		json_string "$arg"
-		separator=","
-	done
-	printf ']'
+terminate_process_tree() {
+	local pid="$1" signal="$2" child
+	while read -r child; do
+		[[ -n "$child" ]] || continue
+		terminate_process_tree "$child" "$signal"
+	done < <(pgrep -P "$pid" 2>/dev/null || true)
+	kill "-$signal" "$pid" 2>/dev/null || true
 }
 
-record_stats() {
-	[[ "${NPM_LITE_STATS:-1}" != "0" ]] || return 0
-	local finished_at duration_ms stats_file stats_dir argv cwd log_value
-	finished_at="$(date +%s)"
-	duration_ms="$(( (finished_at - started_at) * 1000 ))"
-	stats_file="${NPM_LITE_STATS_FILE:-${HOME}/.agent-scripts/npm-stats.jsonl}"
-	stats_dir="$(dirname "$stats_file")"
-	argv="$(argv_json "$@")"
-	cwd="$(json_string "$PWD")"
-	log_value="null"
-	if [[ -n "$retained_log" ]]; then
-		log_value="$(json_string "$retained_log")"
+forward_signal() {
+	local signal="$1" exit_status="$2"
+	trap - INT TERM
+	if [[ -n "$child_pid" ]]; then
+		terminate_process_tree "$child_pid" "$signal"
+		wait "$child_pid" 2>/dev/null || true
 	fi
-	{
-		mkdir -p "$stats_dir"
-		chmod 700 "$stats_dir"
-		printf '{"timestamp":%s,"version":%s,"cwd":%s,"argv":%s,"mode":%s,"workflow":%s,"exit":%d,"duration_ms":%d,"input_bytes":%s,"input_lines":%s,"output_bytes":%s,"output_lines":%s,"retained_log":%s}\n' \
-			"$(json_string "$(date -u +%Y-%m-%dT%H:%M:%SZ)")" \
-			"$(json_string "$NPM_LITE_VERSION")" \
-			"$cwd" \
-			"$argv" \
-			"$(json_string "$mode")" \
-			"$(json_string "$workflow")" \
-			"$status" \
-			"$duration_ms" \
-			"$input_bytes" \
-			"$input_lines" \
-			"$output_bytes" \
-			"$output_lines" \
-			"$log_value" >> "$stats_file"
-		chmod 600 "$stats_file"
-	} 2>/dev/null || true
+	rm -f -- "$visible_file" 2>/dev/null || true
+	prune_old_logs
+	exit "$exit_status"
 }
 
 extract_test_count() {
@@ -107,20 +79,17 @@ extract_test_count() {
 	' "$1"
 }
 
+mode="passthrough"
 if (($# == 2)) && [[ "$1" == "run" ]]; then
 	case "$2" in
 		verify|test:unit)
 			mode="compact"
-			workflow="$2"
 			;;
 	esac
 fi
 
 if [[ "$mode" == "passthrough" ]]; then
-	npm "$@"
-	status=$?
-	record_stats "$@"
-	exit "$status"
+	exec npm "$@"
 fi
 
 log_dir="$PWD/.agent-logs/npm"
@@ -141,12 +110,16 @@ if ! visible_file="$(mktemp "$log_dir/npm-lite-visible.XXXXXX")"; then
 	fail "could not create npm summary file in: $log_dir"
 fi
 umask "$original_umask"
-npm "$@" > "$log_file" 2>&1
+trap 'forward_signal INT 130' INT
+trap 'forward_signal TERM 143' TERM
+npm "$@" > "$log_file" 2>&1 &
+child_pid=$!
+wait "$child_pid"
 status=$?
-finished_at="$(date +%s)"
-duration="$((finished_at - started_at))"
-input_bytes="$(wc -c < "$log_file" | tr -d ' ')"
-input_lines="$(wc -l < "$log_file" | tr -d ' ')"
+child_pid=""
+trap - INT TERM
+duration="$(($(date +%s) - started_at))"
+prune_old_logs
 
 if ((status == 0)); then
 	test_count="$(extract_test_count "$log_file")"
@@ -156,14 +129,12 @@ if ((status == 0)); then
 		printf 'PASS · %s s\n' "$duration" > "$visible_file"
 	fi
 else
-	retained_log="$log_file"
 	printf 'FAIL · exit %d · %s s\n\n' "$status" "$duration" > "$visible_file"
-	tail -n 80 "$log_file" >> "$visible_file"
+	printf '[failure diagnostics limited to the last 80 lines and %d bytes]\n' "$FAILURE_EXCERPT_BYTES" >> "$visible_file"
+	tail -n 80 "$log_file" | tail -c "$FAILURE_EXCERPT_BYTES" >> "$visible_file"
 	printf '\nLog: %s\n' "$log_file" >> "$visible_file"
 fi
 
-output_bytes="$(wc -c < "$visible_file" | tr -d ' ')"
-output_lines="$(wc -l < "$visible_file" | tr -d ' ')"
 command cat "$visible_file"
 rm -f -- "$visible_file" || warn "could not remove npm summary file: $visible_file"
 if ((status == 0)); then
@@ -171,9 +142,7 @@ if ((status == 0)); then
 		rmdir "$log_dir" 2>/dev/null || true
 		rmdir "$PWD/.agent-logs" 2>/dev/null || true
 	else
-		retained_log="$log_file"
 		warn "could not remove successful npm log: $log_file"
 	fi
 fi
-record_stats "$@"
 exit "$status"

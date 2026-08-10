@@ -7,6 +7,7 @@ agent-scripts is a collection of small, local-first command-line utilities for A
 ## Tools
 
 - `mvn-lite` — compact Maven output for builds and tests
+- `npm-lite` — compact output for selected npm test and verification workflows
 - `html-screenshot` — render local HTML or URLs to PNG
 - `launch-browser` — launch Chrome with DevTools enabled
 - `repo-map` — local repository and agent-capability discovery
@@ -23,7 +24,7 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
+Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, and optional project-local pinning.
 
@@ -133,6 +134,31 @@ Summaries are deterministic and conservative. Unsupported formats fall back to a
 Compact-mode failure logs remain under `.agent-logs/maven/` in the current project. Successful logs are deleted unless `--keep-log` is supplied. After a failed run, `mvn-lite` removes its logs older than seven days, including logs retained by `--keep-log`. Move any log that must be kept longer. Set `MVN_LITE_LOG_DIR` to use another destination. Retained raw logs are authoritative, and projects adopting `mvn-lite` should ignore `.agent-logs/`.
 
 A project may optionally define its own `./scripts/build` wrapper for project-specific verification policy, but that vocabulary belongs in the application repository rather than here.
+
+## npm-lite
+
+`npm-lite` reduces successful output for the two supported npm workflows while
+keeping npm's behavior for every other invocation. Only these exact commands
+use compact mode:
+
+```bash
+npm-lite run verify
+npm-lite run test:unit
+```
+
+Successful compact runs print a short status and optional test count. Failures
+retain the complete npm output under `.agent-logs/npm/`, print bounded
+diagnostics, and preserve npm's exit status. Failed npm logs older than seven
+days are pruned on later compact runs; move any log that must be retained
+longer. Other commands pass through to npm unchanged, including:
+
+```bash
+npm-lite install
+npm-lite run build
+```
+
+The latter examples behave like ordinary npm because they do not exactly match
+one of the compact workflows.
 
 ## launch-browser
 
