@@ -1,6 +1,6 @@
 # agent-scripts
 
-[![Version](https://img.shields.io/badge/version-0.1.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.1.0)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.2.0)
 
 agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Some reduce noisy tool output and save agent context; others make common development tasks easier to automate. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 

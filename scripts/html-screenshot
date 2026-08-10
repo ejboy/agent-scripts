@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# html-screenshot 0.1.0
+# html-screenshot 0.2.0
 # Renders one local HTML file or URL to a PNG through headless Chrome.
 # https://github.com/ejboy/agent-scripts
 
 set -euo pipefail
 
-readonly AGENT_SCRIPTS_VERSION="0.1.0"
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
 
 usage() {
 	printf 'html-screenshot %s\n\n' "$AGENT_SCRIPTS_VERSION"

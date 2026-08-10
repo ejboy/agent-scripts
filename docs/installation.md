@@ -23,7 +23,7 @@ Shared projects that need a reproducible version can commit a pinned copy of `mv
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/ejboy/agent-scripts/v0.1.0/scripts/mvn-lite \
+  https://raw.githubusercontent.com/ejboy/agent-scripts/v0.2.0/scripts/mvn-lite \
   -o mvn-lite
 chmod +x mvn-lite
 ./mvn-lite test

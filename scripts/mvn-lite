@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# mvn-lite 0.1.0
+# mvn-lite 0.2.0
 # Compact Maven output for coding-agent build and test workflows.
 # https://github.com/ejboy/agent-scripts
 
 set -uo pipefail
 
-readonly AGENT_SCRIPTS_VERSION="0.1.0"
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
 readonly LOG_RETENTION_MINUTES=10080
 
 project_dir="$PWD"

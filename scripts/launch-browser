@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# launch-browser 0.1.0
+# launch-browser 0.2.0
 # Launches Google Chrome with DevTools enabled for browser automation.
 # https://github.com/ejboy/agent-scripts
 
 set -uo pipefail
 
-readonly AGENT_SCRIPTS_VERSION="0.1.0"
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
 readonly chrome_app="${LAUNCH_BROWSER_CHROME_APP:-/Applications/Google Chrome.app}"
 readonly chrome_bin="$chrome_app/Contents/MacOS/Google Chrome"
 readonly cdp_host="127.0.0.1"
