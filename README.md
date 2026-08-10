@@ -9,6 +9,7 @@ agent-scripts is a collection of small, local-first command-line utilities for A
 - `mvn-lite` — compact Maven output for builds and tests
 - `html-screenshot` — render local HTML or URLs to PNG
 - `launch-browser` — launch Chrome with DevTools enabled
+- `repo-map` — local repository and agent-capability discovery
 
 Public, standalone utilities live under `scripts/`. Repository release tooling lives
 separately under `maintainers/` and is not part of the public utility interface.
@@ -22,9 +23,23 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, and `launch-browser` by name from any project.
+Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, and optional project-local pinning.
+
+## repo-map
+
+`repo-map` is a machine-local registry for discovering related repositories and useful commands across projects. It is intended primarily for coding agents: a project can point an agent at `repo-map` instead of duplicating machine-specific paths and capability lists.
+
+```bash
+repo-map
+repo-map commands
+repo-map add ~/src/aibadger
+repo-map show aibadger
+repo-map get aibadger
+```
+
+`repo-map` exposes a curated set of `agent-scripts` commands as built-in capabilities. These commands are intended to be invoked by name and assume the `agent-scripts` `scripts/` directory is on `PATH`. They are not written to the user registry. The intentionally user-editable registry at `~/.agent-scripts/repo-map` stores additional local repositories, descriptions, notes, and command metadata. `repo-map` does not scan repositories or infer a repository's build system. Its simple records use `repo|name|path|description|notes` and `command|name|command|description` lines.
 
 ## mvn-lite
 

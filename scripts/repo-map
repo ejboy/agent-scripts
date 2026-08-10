@@ -1,0 +1,315 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly REGISTRY_DIR="${HOME}/.agent-scripts"
+readonly REGISTRY="${REGISTRY_DIR}/repo-map"
+
+resolve_script_path() {
+	local script_path="$1" script_dir link_target
+	while [[ -L "$script_path" ]]; do
+		script_dir="$(cd -P -- "$(dirname -- "$script_path")" && pwd -P)" || return 1
+		link_target="$(readlink "$script_path")" || return 1
+		if [[ "$link_target" == /* ]]; then
+			script_path="$link_target"
+		else
+			script_path="$script_dir/$link_target"
+		fi
+	done
+	script_dir="$(cd -P -- "$(dirname -- "$script_path")" && pwd -P)" || return 1
+	printf '%s/%s\n' "$script_dir" "$(basename -- "$script_path")"
+}
+
+SCRIPT_PATH="$(resolve_script_path "${BASH_SOURCE[0]}")"
+readonly SCRIPT_PATH
+SCRIPT_DIR="$(dirname -- "$SCRIPT_PATH")"
+readonly SCRIPT_DIR
+BUILTIN_REPOSITORY_PATH="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+readonly BUILTIN_REPOSITORY_PATH
+BUILTIN_REPOSITORY_NAME='agent-scripts'
+readonly BUILTIN_REPOSITORY_NAME
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 1
+}
+
+usage() {
+	printf '%s\n' \
+		'Usage: repo-map [list]' \
+		'       repo-map add [PATH]' \
+		'       repo-map show NAME' \
+		'       repo-map get NAME' \
+		'       repo-map remove NAME' \
+		'       repo-map commands' \
+		'' \
+		'Maintain a local registry of repositories and agent-usable commands.' \
+		'' \
+		"Registry: $REGISTRY"
+}
+
+repo_names=()
+repo_paths=()
+repo_descriptions=()
+repo_notes=()
+command_repos=()
+command_names=()
+command_descriptions=()
+registry_lines=()
+
+load_registry() {
+	local line type name path description notes extra
+	[[ -e "$REGISTRY" ]] || return 0
+	[[ -f "$REGISTRY" ]] || fail "registry is not a regular file: $REGISTRY"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		registry_lines+=("$line")
+		[[ -z "$line" || "${line:0:1}" == '#' ]] && continue
+		IFS='|' read -r type name path description notes extra <<< "$line"
+		[[ -z "$extra" ]] || fail "malformed registry line: $line"
+		case "$type" in
+			repo)
+				[[ -n "$name" && -n "$path" ]] || fail "malformed repository record: $line"
+				[[ "$name" != "$BUILTIN_REPOSITORY_NAME" ]] || fail "reserved repository name: $BUILTIN_REPOSITORY_NAME"
+				[[ "$name" != *'|'* && "$path" != *'|'* && "$description" != *'|'* && "$notes" != *'|'* ]] ||
+					fail "malformed registry line: $line"
+				if ((${#repo_names[@]} > 0)); then
+					for existing in "${repo_names[@]}"; do
+						[[ "$existing" != "$name" ]] || fail "duplicate repository name in registry: $name"
+					done
+				fi
+				repo_names+=("$name")
+				repo_paths+=("$path")
+				repo_descriptions+=("$description")
+				repo_notes+=("$notes")
+				;;
+			command)
+				[[ -n "$name" && -n "$path" ]] || fail "malformed command record: $line"
+				[[ "$name" != *'|'* && "$path" != *'|'* && "$description" != *'|'* ]] ||
+					fail "malformed registry line: $line"
+				command_repos+=("$name")
+				command_names+=("$path")
+				command_descriptions+=("$description")
+				;;
+			*)
+				fail "malformed registry line: $line"
+				;;
+		esac
+	done < "$REGISTRY"
+}
+
+validate_user_commands() {
+	local index
+	for index in "${!command_repos[@]}"; do
+		[[ "${command_repos[index]}" != "$BUILTIN_REPOSITORY_NAME" ]] ||
+			fail "reserved repository name in command record: $BUILTIN_REPOSITORY_NAME"
+		repository_index "${command_repos[index]}" >/dev/null ||
+			fail "orphan command record: ${command_names[index]} references unknown repository ${command_repos[index]}"
+	done
+}
+
+initialize_builtin() {
+	local command_name index
+	if ((${#repo_names[@]} > 0)); then
+		repo_names=("$BUILTIN_REPOSITORY_NAME" "${repo_names[@]}")
+		repo_paths=("$BUILTIN_REPOSITORY_PATH" "${repo_paths[@]}")
+		repo_descriptions=('Local utilities for AI-assisted development' "${repo_descriptions[@]}")
+		repo_notes=('' "${repo_notes[@]}")
+	else
+		repo_names=("$BUILTIN_REPOSITORY_NAME")
+		repo_paths=("$BUILTIN_REPOSITORY_PATH")
+		repo_descriptions=('Local utilities for AI-assisted development')
+		repo_notes=('')
+	fi
+	if ((${#command_names[@]} > 0)); then
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' "${command_names[@]}")
+	else
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map')
+	fi
+	if ((${#command_descriptions[@]} > 0)); then
+		command_descriptions=(
+			'Compact Maven output for builds and tests'
+			'Render local HTML or URLs to PNG'
+			'Launch Chrome with DevTools enabled'
+			'Local repository and agent-capability discovery'
+			"${command_descriptions[@]}"
+		)
+	else
+		command_descriptions=(
+			'Compact Maven output for builds and tests'
+			'Render local HTML or URLs to PNG'
+			'Launch Chrome with DevTools enabled'
+			'Local repository and agent-capability discovery'
+		)
+	fi
+	for command_name in mvn-lite html-screenshot launch-browser repo-map; do
+		if [[ ! -x "$SCRIPT_DIR/$command_name" ]]; then
+			for index in "${!command_names[@]}"; do
+				if [[ "${command_names[index]}" == "$command_name" && "${command_repos[index]}" == "$BUILTIN_REPOSITORY_NAME" ]]; then
+					unset 'command_names[index]'
+					unset 'command_repos[index]'
+					unset 'command_descriptions[index]'
+				fi
+			done
+		fi
+	done
+}
+
+repository_index() {
+	local index
+	((${#repo_names[@]} > 0)) || return 1
+	for index in "${!repo_names[@]}"; do
+		if [[ "${repo_names[index]}" == "$1" ]]; then
+			printf '%s\n' "$index"
+			return 0
+		fi
+	done
+	return 1
+}
+
+write_registry() {
+	local remove_name="${1:-}" line type name path description notes extra temp
+	mkdir -p -- "$REGISTRY_DIR" || fail "could not create registry directory: $REGISTRY_DIR"
+	chmod 700 "$REGISTRY_DIR" 2>/dev/null || true
+	temp="$(mktemp "$REGISTRY_DIR/repo-map.XXXXXX")" || fail 'could not create temporary registry'
+	trap 'rm -f -- "$temp"' RETURN
+	{
+		for line in "${registry_lines[@]}"; do
+			if [[ -n "$remove_name" && "$line" == repo\|"$remove_name"\|* ]]; then
+				continue
+			fi
+			if [[ -n "$remove_name" && "$line" == command\|"$remove_name"\|* ]]; then
+				continue
+			fi
+			printf '%s\n' "$line"
+		done
+	} > "$temp" || fail 'could not write temporary registry'
+	chmod 600 "$temp" || fail 'could not protect registry permissions'
+	mv -f -- "$temp" "$REGISTRY" || fail "could not install registry: $REGISTRY"
+	trap - RETURN
+}
+
+add_repository() {
+	local input="${1:-$PWD}" path root remote name
+	[[ "$input" != *$'\n'* ]] || fail 'path may not contain a newline'
+	[[ -d "$input" ]] || fail "repository path does not exist or is not a directory: $input"
+	path="$(cd -- "$input" && pwd -P)" || fail "could not resolve path: $input"
+	root="$(git -C "$path" rev-parse --show-toplevel 2>/dev/null)" || fail "not a Git repository: $input"
+	path="$(cd -- "$root" && pwd -P)" || fail "could not resolve Git repository: $input"
+	remote="$(git -C "$path" config --get remote.origin.url 2>/dev/null || true)"
+	remote="${remote%/}"
+	remote="${remote##*/}"
+	remote="${remote%.git}"
+	if [[ -n "$remote" ]]; then
+		name="$remote"
+	else
+		name="$(basename -- "$path")"
+	fi
+	[[ -n "$name" && "$name" != *'|'* ]] || fail 'could not infer a valid repository name'
+	[[ "$name" != "$BUILTIN_REPOSITORY_NAME" ]] || fail "repository name is reserved: $BUILTIN_REPOSITORY_NAME"
+	if repository_index "$name" >/dev/null; then
+		fail "repository already registered: $name"
+	fi
+	registry_lines+=("repo|$name|$path||")
+	write_registry
+	printf 'Added %s\n' "$name"
+}
+
+list_repositories() {
+	local index commands command_index output
+	if ((${#repo_names[@]} == 0)); then
+		printf 'No repositories registered.\n'
+		return 0
+	fi
+	for index in "${!repo_names[@]}"; do
+		output="${repo_names[index]}  ${repo_paths[index]}"
+		[[ "${repo_names[index]}" != "$BUILTIN_REPOSITORY_NAME" ]] || output+='  [built-in]'
+		[[ -z "${repo_descriptions[index]}" ]] || output+="  ${repo_descriptions[index]}"
+		commands=''
+		for command_index in "${!command_names[@]}"; do
+			if [[ "${command_repos[command_index]}" == "${repo_names[index]}" ]]; then
+				[[ -z "$commands" ]] || commands+=', '
+				commands+="${command_names[command_index]}"
+			fi
+		done
+		[[ -z "$commands" ]] || output+="  [$commands]"
+		[[ -d "${repo_paths[index]}" ]] || output+='  [missing]'
+		printf '%s\n' "$output"
+	done
+}
+
+show_repository() {
+	local name="$1" index command_index
+	index="$(repository_index "$name")" || fail "unknown repository: $name"
+	printf 'Name: %s\nPath: %s\n' "$name" "${repo_paths[index]}"
+	if [[ -d "${repo_paths[index]}" ]]; then
+		printf 'Status: present\n'
+	else
+		printf 'Status: missing\n'
+	fi
+	[[ -z "${repo_descriptions[index]}" ]] || printf 'Description: %s\n' "${repo_descriptions[index]}"
+	[[ -z "${repo_notes[index]}" ]] || printf 'Notes: %s\n' "${repo_notes[index]}"
+	printf 'Commands:\n'
+	for command_index in "${!command_names[@]}"; do
+		if [[ "${command_repos[command_index]}" == "$name" ]]; then
+			printf '  %-16s %s\n' "${command_names[command_index]}" "${command_descriptions[command_index]}"
+		fi
+	done
+}
+
+get_repository() {
+	local name="$1" index
+	index="$(repository_index "$name")" || fail "unknown repository: $name"
+	[[ -d "${repo_paths[index]}" ]] || fail "registered repository path is missing: ${repo_paths[index]}"
+	printf '%s\n' "${repo_paths[index]}"
+}
+
+list_commands() {
+	local index repo_index
+	((${#command_names[@]} > 0)) || return 0
+	for index in "${!command_names[@]}"; do
+		repo_index="$(repository_index "${command_repos[index]}")" || fail "command references unknown repository: ${command_repos[index]}"
+		printf '%-16s %-16s %s\n' "${command_names[index]}" "${repo_names[repo_index]}" "${command_descriptions[index]}"
+	done
+}
+
+remove_repository() {
+	local name="$1"
+	[[ "$name" != "$BUILTIN_REPOSITORY_NAME" ]] || fail "cannot remove built-in repository: $BUILTIN_REPOSITORY_NAME"
+	repository_index "$name" >/dev/null || fail "unknown repository: $name"
+	write_registry "$name"
+	printf 'Removed %s\n' "$name"
+}
+
+command="${1:-list}"
+if [[ "$command" == --help || "$command" == -h ]]; then
+	usage
+	exit 0
+fi
+load_registry
+validate_user_commands
+initialize_builtin
+case "$command" in
+	list)
+		(($# <= 1)) || fail 'list does not accept arguments'
+		list_repositories
+		;;
+	add)
+		(($# <= 2)) || fail 'add accepts at most one path'
+		add_repository "${2:-$PWD}"
+		;;
+	show|get|remove)
+		(($# == 2)) || fail "$command requires a repository name"
+		"${command}_repository" "$2"
+		;;
+	commands)
+		(($# == 1)) || fail 'commands does not accept arguments'
+		list_commands
+		;;
+	--help|-h)
+		usage
+		;;
+	*)
+		fail "unknown command: $command (use --help for usage)"
+		;;
+esac

@@ -40,6 +40,10 @@ The scripts use Bash and standard operating-system tools. They do not call an LL
 
 Generic cross-project wrappers—such as compact Maven output and predictable browser startup—belong here. Module names, test tiers, ports, services, and verification policy belong in the application repository.
 
+## Local discoverability
+
+Local tools can expose lightweight, deterministic CLI metadata so agents can discover useful repositories and capabilities without each project duplicating machine-specific instructions.
+
 ## Failure behavior
 
 Scripts fail loudly when required tools or resources are unavailable. On Maven failure, `mvn-lite` reports recognized evidence, points to the complete raw log, and suggests `--full`. It does not echo Maven arguments in compact failure output because command lines may contain sensitive values.
