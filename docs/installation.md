@@ -22,17 +22,17 @@ command -v mvn-lite npm-lite html-screenshot launch-browser vscode-test repo-map
 
 `vscode-test` and `launch-browser` inspect macOS processes and connect to local DevTools endpoints. `html-screenshot` launches Chrome. When Codex runs these tools inside a restricted sandbox, those operations may be denied even though the underlying application is healthy.
 
-Do not allow the entire command prefixes without approval. `vscode-test launch` accepts an alternate executable through `--code` and runs extension-under-test code. `html-screenshot` accepts an alternate Chrome executable. Use subcommand-specific rules for `vscode-test`, and require approval for commands that launch code, control applications, capture the screen, or terminate processes:
+Do not allow the entire command prefixes without approval. `vscode-test launch` accepts an alternate executable through `--code` and runs extension-under-test code. `html-screenshot` accepts an alternate Chrome executable. Use subcommand-specific rules for `vscode-test`, and require approval for commands that launch code, capture the screen, or terminate processes:
 
 ```python
 prefix_rule(
-    pattern = ["vscode-test", ["status", "inspect", "text"]],
+    pattern = ["vscode-test", ["status", "inspect", "text", "activate"]],
     decision = "allow",
-    justification = "Read-only vscode-test inspection needs macOS process and localhost DevTools access",
+    justification = "Bounded vscode-test inspection and activation need macOS process or localhost access",
 )
 
 prefix_rule(
-    pattern = ["vscode-test", ["launch", "activate", "screenshot", "stop"]],
+    pattern = ["vscode-test", ["launch", "screenshot", "stop"]],
     decision = "prompt",
     justification = "vscode-test may launch project code or control a desktop process",
 )
