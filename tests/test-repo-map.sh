@@ -83,6 +83,12 @@ run_map add "$repo_two" >/dev/null
 expected_two="$(cd -- "$repo_two" && pwd -P)"
 [[ "$(run_map get second-repository)" == "$expected_two" ]] || fail_test 'get did not print only the canonical path'
 [[ "$(run_map get first-repository)" == "$(cd -- "$repo_one" && pwd -P)" ]] || fail_test 'get failed for first repository'
+set +e
+partial_output="$(run_map get REPOSITORY 2>"$test_root/partial.stderr")"
+partial_status=$?
+set -e
+partial_error="$(<"$test_root/partial.stderr")"
+[[ "$partial_status" -ne 0 && -z "$partial_output" && "$partial_error" == *'Error: unknown repository: REPOSITORY'* && "$partial_error" == *$'Partial matches:\n  first-repository\n  second-repository'* ]] || fail_test 'get did not suggest case-insensitive partial matches on stderr'
 output="$(run_map list)"
 [[ "$output" == *'agent-scripts'* && "$output" == *'first-repository'* && "$output" == *'second-repository'* ]] || fail_test 'list omitted a repository'
 output="$(run_map show second-repository)"

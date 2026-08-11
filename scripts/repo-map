@@ -209,6 +209,23 @@ repository_index() {
 	return 1
 }
 
+fail_unknown_repository() {
+	local name="$1" index found=0
+	printf 'Error: unknown repository: %s\n' "$name" >&2
+	shopt -s nocasematch
+	for index in "${!repo_names[@]}"; do
+		if [[ "${repo_names[index]}" == *"$name"* ]]; then
+			if ((found == 0)); then
+				printf 'Partial matches:\n' >&2
+			fi
+			printf '  %s\n' "${repo_names[index]}" >&2
+			found=1
+		fi
+	done
+	shopt -u nocasematch
+	exit 1
+}
+
 write_registry() {
 	local remove_name="${1:-}" line type name path description notes extra temp
 	mkdir -p -- "$REGISTRY_DIR" || fail "could not create registry directory: $REGISTRY_DIR"
@@ -282,7 +299,7 @@ list_repositories() {
 
 show_repository() {
 	local name="$1" index command_index
-	index="$(repository_index "$name")" || fail "unknown repository: $name"
+	index="$(repository_index "$name")" || fail_unknown_repository "$name"
 	printf 'Name: %s\nPath: %s\n' "$name" "${repo_paths[index]}"
 	if [[ -d "${repo_paths[index]}" ]]; then
 		printf 'Status: present\n'
@@ -301,7 +318,7 @@ show_repository() {
 
 get_repository() {
 	local name="$1" index
-	index="$(repository_index "$name")" || fail "unknown repository: $name"
+	index="$(repository_index "$name")" || fail_unknown_repository "$name"
 	[[ -d "${repo_paths[index]}" ]] || fail "registered repository path is missing: ${repo_paths[index]}"
 	printf '%s\n' "${repo_paths[index]}"
 }
@@ -359,7 +376,7 @@ show_command() {
 remove_repository() {
 	local name="$1"
 	[[ "$name" != "$BUILTIN_REPOSITORY_NAME" ]] || fail "cannot remove built-in repository: $BUILTIN_REPOSITORY_NAME"
-	repository_index "$name" >/dev/null || fail "unknown repository: $name"
+	repository_index "$name" >/dev/null || fail_unknown_repository "$name"
 	write_registry "$name"
 	printf 'Removed %s\n' "$name"
 }
