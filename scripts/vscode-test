@@ -1,0 +1,376 @@
+#!/usr/bin/env bash
+
+# vscode-test 0.2.0
+# Runs compact, approval-friendly VS Code extension test operations.
+# https://github.com/ejboy/agent-scripts
+
+set -euo pipefail
+
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
+readonly default_code_bin="/Applications/Visual Studio Code.app/Contents/MacOS/Code"
+readonly default_port="9223"
+readonly readiness_attempts=50
+readonly readiness_delay_seconds="0.1"
+readonly stability_attempts=10
+readonly detached_runner='state_file="$1"
+expected_service="$2"
+shift 2
+"$@"
+status=$?
+state_service=""
+if [[ -f "$state_file" ]]; then
+	while IFS="=" read -r key value; do
+		[[ "$key" == "service" ]] && state_service="$value"
+	done <"$state_file"
+fi
+if [[ "$state_service" == "$expected_service" ]]; then
+	rm -f -- "$state_file"
+fi
+exit "$status"'
+
+usage() {
+	printf 'vscode-test %s\n\n' "$AGENT_SCRIPTS_VERSION"
+	printf '%s\n' \
+		'Usage: vscode-test launch [options] WORKSPACE' \
+		'       vscode-test status [--port PORT]' \
+		'       vscode-test inspect [page|panel] [--port PORT]' \
+		'       vscode-test text [page|panel] [--limit CHARS] [--port PORT]' \
+		'       vscode-test activate [--port PORT]' \
+		'       vscode-test screenshot OUTPUT' \
+		'       vscode-test stop [--port PORT]' \
+		'' \
+		'Launch options:' \
+		'  --port PORT                 DevTools port (default: 9223)' \
+		'  --user-data-dir PATH        Profile directory' \
+		'  --extensions-dir PATH       Extensions directory' \
+		'  --extension-development-path PATH' \
+		'  --code PATH                 VS Code executable' \
+		'' \
+		'Inspection output is compact by default. text is whitespace-normalized and' \
+		'limited to 4000 characters unless --limit is specified.'
+}
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 1
+}
+
+validate_port() {
+	[[ "$1" =~ ^[1-9][0-9]{0,4}$ ]] && ((1 <= 10#$1 && 10#$1 <= 65535)) || fail "invalid port: $1"
+}
+
+state_dir() { printf '%s/.agent-scripts/vscode-test\n' "$HOME"; }
+state_file() { printf '%s/launch-%s.state\n' "$(state_dir)" "$1"; }
+cdp_ready() { curl --silent --fail --max-time 1 "http://127.0.0.1:$1/json/version" >/dev/null 2>&1; }
+
+listener_pid() {
+	local listeners
+	listeners="$(lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true)"
+	printf '%s\n' "${listeners%%$'\n'*}"
+}
+
+process_state() {
+	local pid="$1" kill_error ps_pid
+	if kill -0 "$pid" 2>/dev/null; then
+		printf 'alive\n'
+		return
+	fi
+	ps_pid="$(ps -p "$pid" -o pid= 2>/dev/null | tr -d '[:space:]')"
+	if [[ "$ps_pid" == "$pid" ]]; then
+		printf 'alive\n'
+		return
+	fi
+	kill_error="$(kill -0 "$pid" 2>&1 || true)"
+	if [[ "$kill_error" == *'No such process'* || "$kill_error" == *'no such process'* ]]; then
+		printf 'dead\n'
+	else
+		printf 'unknown\n'
+	fi
+}
+
+read_state() {
+	local file="$1" key value
+	state_service="" state_pid="" state_app="" state_log=""
+	[[ -f "$file" ]] || return 1
+	while IFS="=" read -r key value; do
+		case "$key" in service) state_service="$value" ;; pid) state_pid="$value" ;; app) state_app="$value" ;; log) state_log="$value" ;; esac
+	done <"$file"
+}
+
+print_log_tail() {
+	local log_file="$1"
+	if [[ -s "$log_file" ]]; then
+		printf 'Last VS Code output:\n' >&2
+		tail -n 12 "$log_file" >&2
+	fi
+}
+
+remove_service() {
+	local service="$1"
+	launchctl remove "$service" >/dev/null 2>&1 || true
+}
+
+run_cdp() {
+	local mode="$1" target="$2" limit="$3" port="$4" script node_version node_major
+	command -v node >/dev/null 2>&1 || fail 'node is required for DevTools inspection'
+	cdp_ready "$port" || fail "VS Code DevTools is not ready on port $port"
+	node_version="$(node -p 'process.versions.node' 2>/dev/null)" || fail 'could not determine the Node.js version'
+	node_major="${node_version%%.*}"
+	[[ "$node_major" =~ ^[0-9]+$ ]] && ((node_major >= 22)) || fail "DevTools inspection requires Node.js 22+ (found $node_version)"
+	read -r -d '' script <<'NODE' || true
+const main = async () => {
+  const base = process.env.VSCODE_TEST_CDP_URL;
+  const targets = await (await fetch(`${base}/json`)).json();
+  const panel = process.env.VSCODE_TEST_TARGET === "panel";
+  const evaluate = async (target, expression) => {
+    const socket = new WebSocket(target.webSocketDebuggerUrl);
+    await new Promise((resolve, reject) => {
+      socket.onopen = resolve;
+      socket.onerror = () => reject(new Error("DevTools WebSocket connection failed"));
+    });
+    try {
+      return await new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (fn, value) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          fn(value);
+        };
+        const timer = setTimeout(
+          () => finish(reject, new Error("DevTools evaluation timed out")),
+          5000
+        );
+        socket.onclose = () =>
+          finish(reject, new Error("DevTools target closed during evaluation"));
+        socket.onmessage = event => {
+          const message = JSON.parse(event.data);
+          if (message.id !== 1) return;
+          if (message.error || message.result?.exceptionDetails) {
+            finish(reject, new Error("DevTools evaluation failed"));
+          } else {
+            finish(resolve, message.result.result.value);
+          }
+        };
+        socket.send(JSON.stringify({id: 1, method: "Runtime.evaluate", params: {expression, returnByValue: true}}));
+      });
+    } finally {
+      if (socket.readyState === WebSocket.OPEN) socket.close();
+    }
+  };
+  let target;
+  if (panel) {
+    const candidates = [];
+    for (const item of targets.filter(item => item.type === "iframe")) {
+      const probe = await evaluate(item, `(()=>{const f=document.querySelector("#active-frame");return {visible:document.visibilityState==="visible"&&!!f&&f.getClientRects().length>0,accessible:!!f?.contentDocument}})()`);
+      if (probe?.visible && probe?.accessible) candidates.push(item);
+    }
+    if (candidates.length === 0) throw new Error("no visible panel with an accessible #active-frame was found");
+    if (candidates.length > 1) throw new Error(`panel target is ambiguous (${candidates.length} visible candidates)`);
+    target = candidates[0];
+  } else {
+    target = targets.find(item => item.type === "page");
+    if (!target) throw new Error("no page target found");
+  }
+  const root = panel ? `document.querySelector("#active-frame").contentDocument` : `document`;
+  const expression = process.env.VSCODE_TEST_MODE === "text"
+    ? `(${root}).body?.innerText || ""`
+    : `(()=>{const d=${root};return {title:d.title,url:d.location?.href || location.href,ready:d.readyState,frames:d.defaultView?.frames.length || 0,controls:d.querySelectorAll("button,input,select,textarea,[role=button]").length,textLength:(d.body?.innerText || "").length}})()`;
+  const result = await evaluate(target, expression);
+  if (process.env.VSCODE_TEST_MODE === "text") {
+    const limit = Number(process.env.VSCODE_TEST_LIMIT);
+    const text = String(result).replace(/\s+/g, " ").trim();
+    process.stdout.write(text.slice(0, limit) + (text.length > limit ? "…" : "") + "\n");
+  } else process.stdout.write(JSON.stringify(result) + "\n");
+};
+main().catch(error => { console.error(`Error: ${error.message}`); process.exit(1); });
+NODE
+	VSCODE_TEST_MODE="$mode" VSCODE_TEST_TARGET="$target" VSCODE_TEST_LIMIT="$limit" \
+		VSCODE_TEST_CDP_URL="http://127.0.0.1:$port" node -e "$script"
+}
+
+command_name="${1:-}"
+[[ -n "$command_name" ]] || { usage >&2; exit 1; }
+shift
+
+case "$command_name" in
+	launch)
+		port="$default_port" code_bin="${VSCODE_TEST_CODE_BIN:-$default_code_bin}"
+		user_data_dir="" extensions_dir="" extension_development_path="" workspace=""
+		while (($# > 0)); do
+			case "$1" in
+				--port|--user-data-dir|--extensions-dir|--extension-development-path|--code)
+					(($# >= 2)) || fail "$1 requires a value"
+					case "$1" in
+						--port) port="$2" ;; --user-data-dir) user_data_dir="$2" ;;
+						--extensions-dir) extensions_dir="$2" ;; --extension-development-path) extension_development_path="$2" ;;
+						--code) code_bin="$2" ;;
+					esac
+					shift 2 ;;
+				--*) fail "unknown option: $1" ;;
+				*) [[ -z "$workspace" ]] || fail 'only one workspace may be specified'; workspace="$1"; shift ;;
+			esac
+		done
+		validate_port "$port"
+		[[ -n "$workspace" ]] || fail 'a workspace is required'
+		[[ -d "$workspace" ]] || fail "workspace directory not found: $workspace"
+		[[ -x "$code_bin" ]] || fail "VS Code executable not found: $code_bin"
+		app_path="$(cd -- "$(dirname -- "$code_bin")/../.." && pwd -P)"
+		command -v curl >/dev/null 2>&1 || fail 'curl is required to check DevTools readiness'
+		command -v launchctl >/dev/null 2>&1 || fail 'launchctl is required for detached VS Code startup'
+		command -v lsof >/dev/null 2>&1 || fail 'lsof is required to identify the VS Code DevTools process'
+		base_dir="$(state_dir)"; mkdir -p -- "$base_dir"
+		file="$(state_file "$port")"
+		if [[ -e "$file" ]]; then
+			read_state "$file" || fail "could not read existing launch state: $file"
+			if [[ -z "$state_pid" || "$state_pid" == *[!0-9]* ]]; then
+				fail "existing launch state has no valid PID and was retained: $file"
+			fi
+			recorded_process_state="$(process_state "$state_pid")"
+			if [[ "$recorded_process_state" == alive ]]; then
+				fail "managed launch state already exists for live PID $state_pid on port $port; use status or stop"
+			fi
+			if [[ "$recorded_process_state" == unknown ]]; then
+				fail "could not prove recorded PID $state_pid is absent; launch state was retained"
+			fi
+			if cdp_ready "$port"; then
+				fail "stale launch state has a dead PID but port $port still has a DevTools endpoint; state was retained"
+			fi
+			rm -f -- "$file"
+		fi
+		cdp_ready "$port" && fail "unmanaged DevTools endpoint is already running on port $port"
+		[[ -n "$user_data_dir" ]] || user_data_dir="$base_dir/user-data-$port"
+		[[ -n "$extensions_dir" ]] || extensions_dir="$base_dir/extensions-$port"
+		mkdir -p -- "$user_data_dir" "$extensions_dir"
+		log_file="$base_dir/code-$port.log"
+		args=("--user-data-dir=$user_data_dir" "--extensions-dir=$extensions_dir" "--remote-debugging-address=127.0.0.1" "--remote-debugging-port=$port" --new-window)
+		[[ -z "$extension_development_path" ]] || args+=("--extensionDevelopmentPath=$extension_development_path")
+		args+=("$workspace")
+		service="xyz.pvrlabs.vscode-test.$$.${RANDOM}"
+		printf 'service=%s\npid=\napp=%s\nlog=%s\n' "$service" "$app_path" "$log_file" >"$file"
+		if ! launchctl submit -l "$service" -o "$log_file" -e "$log_file" -- /bin/bash -c "$detached_runner" "$service" "$file" "$service" "$code_bin" "${args[@]}"; then
+			rm -f -- "$file"
+			fail 'launchctl failed to start VS Code'
+		fi
+		code_pid=""
+		for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
+			[[ -f "$file" ]] || { print_log_tail "$log_file"; fail "VS Code exited before DevTools became ready; log=$log_file"; }
+			if cdp_ready "$port"; then
+				code_pid="$(listener_pid "$port")"
+				[[ -z "$code_pid" ]] || break
+			fi
+			sleep "$readiness_delay_seconds"
+		done
+		if [[ -z "$code_pid" || "$code_pid" == *[!0-9]* ]]; then
+			remove_service "$service"; rm -f -- "$file"; print_log_tail "$log_file"
+			fail "VS Code DevTools did not become ready; log=$log_file"
+		fi
+		printf 'service=%s\npid=%s\napp=%s\nlog=%s\n' "$service" "$code_pid" "$app_path" "$log_file" >"$file"
+		for ((attempt = 1; attempt <= stability_attempts; attempt++)); do
+			current_listener_pid="$(listener_pid "$port")"
+			if [[ "$current_listener_pid" != "$code_pid" ]] || ! cdp_ready "$port"; then
+				remove_service "$service"; rm -f -- "$file"; print_log_tail "$log_file"
+				fail "VS Code exited during the readiness grace period; log=$log_file"
+			fi
+			sleep "$readiness_delay_seconds"
+		done
+		printf 'VS Code ready: pid=%s cdp=http://127.0.0.1:%s\n' "$code_pid" "$port"
+		;;
+	status|inspect|text|stop)
+		port="$default_port" target="page" limit="4000"
+		if [[ "$command_name" == inspect || "$command_name" == text ]]; then case "${1:-}" in page|panel) target="$1"; shift ;; esac; fi
+		while (($# > 0)); do
+			case "$1" in
+				--port) (($# >= 2)) || fail '--port requires a value'; port="$2"; shift 2 ;;
+				--limit) [[ "$command_name" == text ]] || fail '--limit is only valid with text'; (($# >= 2)) || fail '--limit requires a value'; limit="$2"; shift 2 ;;
+				*) fail "unknown argument: $1" ;;
+			esac
+		done
+		validate_port "$port"
+		[[ "$limit" =~ ^[1-9][0-9]*$ ]] || fail 'limit must be a positive integer'
+		case "$command_name" in
+			status)
+				file="$(state_file "$port")"
+				if ! read_state "$file"; then
+					if cdp_ready "$port"; then fail "DevTools endpoint on port $port is unmanaged (no launch state)"; else fail "no launch state and no DevTools endpoint on port $port"; fi
+				fi
+				[[ -n "$state_pid" && "$state_pid" != *[!0-9]* ]] || fail "launch state has an invalid PID for port $port"
+				current_listener_pid="$(listener_pid "$port")"
+				if [[ "$current_listener_pid" == "$state_pid" ]] && cdp_ready "$port"; then
+					printf 'VS Code ready: pid=%s cdp=http://127.0.0.1:%s\n' "$state_pid" "$port"
+					exit 0
+				fi
+				recorded_process_state="$(process_state "$state_pid")"
+				if [[ "$recorded_process_state" == dead ]]; then
+					rm -f -- "$file"
+					fail "stale launch state removed: recorded process is dead (pid=${state_pid:-unknown})"
+				fi
+				if [[ "$recorded_process_state" == unknown ]]; then
+					fail "could not determine whether recorded PID $state_pid exists; state was retained"
+				fi
+				cdp_ready "$port" || fail "managed process is alive but DevTools endpoint is missing on port $port"
+				fail "DevTools endpoint PID does not match managed PID $state_pid; state was retained"
+				;;
+			inspect) run_cdp inspect "$target" "$limit" "$port" ;;
+			text) run_cdp text "$target" "$limit" "$port" ;;
+			stop)
+				file="$(state_file "$port")"; read_state "$file" || fail "no launch state found for port $port"
+				pid="$state_pid"; [[ -n "$pid" && "$pid" != *[!0-9]* ]] || fail "invalid PID in $file"
+				recorded_process_state="$(process_state "$pid")"
+				current_listener_pid="$(listener_pid "$port")"
+				process_command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+				if [[ "$recorded_process_state" == dead ]]; then
+					if cdp_ready "$port"; then fail "recorded process is dead but DevTools endpoint remains on port $port; state was retained"; fi
+					[[ -z "$state_service" ]] || remove_service "$state_service"; rm -f -- "$file"
+					printf 'VS Code already stopped: pid=%s; stale state removed\n' "$pid"; exit 0
+				fi
+				if [[ "$recorded_process_state" == unknown && "$current_listener_pid" != "$pid" ]]; then
+					fail "could not verify ownership of PID $pid; state was retained"
+				fi
+				if [[ -n "$process_command" && "$process_command" != *"--remote-debugging-port=$port"* && "$current_listener_pid" != "$pid" ]]; then
+					fail "PID $pid no longer belongs to the managed VS Code session; state was retained"
+				fi
+				printf 'service=\npid=%s\napp=%s\nlog=%s\n' "$pid" "$state_app" "$state_log" >"$file"
+				[[ -z "$state_service" ]] || remove_service "$state_service"
+				kill -TERM "$pid" 2>/dev/null || true
+				pid_running=true; endpoint_running=true
+				for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
+					pid_running=false; endpoint_running=false
+					[[ "$(process_state "$pid")" != dead ]] && pid_running=true
+					cdp_ready "$port" && endpoint_running=true
+					if [[ "$pid_running" != true && "$endpoint_running" != true ]]; then break; fi
+					sleep "$readiness_delay_seconds"
+				done
+				if [[ "$pid_running" == true || "$endpoint_running" == true ]]; then
+					fail "VS Code did not stop cleanly (pid_alive=$pid_running endpoint_alive=$endpoint_running); state was retained"
+				fi
+				rm -f -- "$file"; printf 'VS Code stopped: pid=%s\n' "$pid" ;;
+		esac
+		;;
+	activate)
+		port="$default_port"
+		while (($# > 0)); do
+			case "$1" in
+				--port) (($# >= 2)) || fail '--port requires a value'; port="$2"; shift 2 ;;
+				*) fail "unknown argument: $1" ;;
+			esac
+		done
+		validate_port "$port"
+		read_state "$(state_file "$port")" || fail "no managed launch state found for port $port"
+		[[ -n "$state_pid" && "$state_pid" != *[!0-9]* ]] || fail "managed launch state has an invalid PID for port $port"
+		current_listener_pid="$(listener_pid "$port")"
+		recorded_process_state="$(process_state "$state_pid")"
+		if [[ "$recorded_process_state" == dead ]]; then fail "managed VS Code process is not running: pid=$state_pid"; fi
+		if [[ "$recorded_process_state" == unknown && "$current_listener_pid" != "$state_pid" ]]; then fail "could not verify managed VS Code process: pid=$state_pid"; fi
+		osascript - "$state_pid" <<'APPLESCRIPT'
+on run argv
+	set targetPid to (item 1 of argv) as integer
+	tell application "System Events" to set frontmost of first process whose unix id is targetPid to true
+end run
+APPLESCRIPT
+		printf 'VS Code activated: pid=%s\n' "$state_pid"
+		;;
+	screenshot) (($# == 1)) || fail 'screenshot requires one output path'; screencapture -x "$1"; [[ -s "$1" ]] || fail "screenshot was not created: $1"; printf 'Screenshot: %s\n' "$1" ;;
+	--help|-h|help) usage ;;
+	*) fail "unknown command: $command_name" ;;
+esac

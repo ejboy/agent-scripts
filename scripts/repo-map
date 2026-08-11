@@ -160,17 +160,18 @@ initialize_builtin() {
 		repo_notes=('')
 	fi
 	if ((${#command_names[@]} > 0)); then
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' 'npm-lite' "${command_names[@]}")
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite' "${command_names[@]}")
 	else
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'repo-map' 'npm-lite')
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite')
 	fi
 	if ((${#command_descriptions[@]} > 0)); then
 		command_descriptions=(
 			'Compact Maven output for builds and tests'
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
+			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
 			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
 			"${command_descriptions[@]}"
@@ -180,11 +181,12 @@ initialize_builtin() {
 			'Compact Maven output for builds and tests'
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
+			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
 			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
 		)
 	fi
-	for command_name in mvn-lite html-screenshot launch-browser repo-map npm-lite; do
+	for command_name in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite; do
 		if [[ ! -x "$SCRIPT_DIR/$command_name" ]]; then
 			for index in "${!command_names[@]}"; do
 				if [[ "${command_names[index]}" == "$command_name" && "${command_repos[index]}" == "$BUILTIN_REPOSITORY_NAME" ]]; then

@@ -10,6 +10,7 @@ agent-scripts is a collection of small, local-first command-line utilities for A
 - `npm-lite` — compact output for selected npm test and verification workflows
 - `html-screenshot` — render local HTML or URLs to PNG
 - `launch-browser` — launch Chrome with DevTools enabled
+- `vscode-test` — compact, approval-friendly VS Code extension testing
 - `repo-map` — local repository and agent-capability discovery
 
 See [choosing the right tool](docs/choosing-tools.md) for measured output savings, recommended use cases, and experiment limitations.
@@ -27,7 +28,7 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
+Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke the tools under `scripts/` by name from any project.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, and optional project-local pinning.
 
@@ -86,6 +87,22 @@ html-screenshot --scale 2 https://example.com
 It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait. Successful default output is one line; use `--verbose` to retain Chrome diagnostics. Failed renders always include Chrome diagnostics.
 
 Release maintenance is documented in [maintainers/README.md](maintainers/README.md).
+
+## vscode-test
+
+`vscode-test` provides fixed, reusable operations for macOS VS Code extension testing. Its stable command prefix avoids repeated approvals for changing inline JavaScript, while compact inspection and capped text output reduce transcript noise.
+
+```bash
+vscode-test launch --extension-development-path ./extension ./fixture
+vscode-test inspect page
+vscode-test inspect panel
+vscode-test text panel --limit 2000
+vscode-test activate
+vscode-test screenshot /tmp/vscode.png
+vscode-test stop
+```
+
+The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, and `text` normalizes whitespace and defaults to at most 4,000 characters. Inspection requires Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle.
 
 ## repo-map
 

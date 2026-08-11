@@ -10,6 +10,7 @@ The tools in this repository solve different workflow problems. The build wrappe
 | `npm-lite` | Running exactly `npm run verify` or `npm run test:unit` | Running any other npm workflow; unsupported commands pass through unchanged |
 | `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
 | `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
+| `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |
 | `repo-map` | Resolving a known machine-local repository or discovering an unknown local repository or helper | The project already provides a correct, stable path or command directly |
 
 ## Measured output savings
@@ -46,6 +47,8 @@ The measurements do not demonstrate faster execution. Run order, caches, JVM sta
 Use `html-screenshot` for one-shot rendering. In the experiment it produced a PNG that was byte-identical to the equivalent direct Chrome command. Its value is consistent arguments, input validation, safe output replacement, and concise successful output. It does not use a different rendering engine or make Chrome faster.
 
 Use `launch-browser` when several browser automation actions should share a persistent Chrome DevTools session. It manages the browser profile, launch state, and cleanup. It is not needed for a single screenshot. Reusing an already-active DevTools session that was not started through the expected managed state remains a known limitation.
+
+Use `vscode-test` for macOS VS Code extension sessions. It exposes a stable command prefix for approvals and deliberately limits DevTools inspection to summaries and bounded visible text. Routine success output is one line; full VS Code diagnostics remain in the launch log named by an error.
 
 ## Targeted repository discovery
 

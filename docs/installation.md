@@ -10,12 +10,12 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
+Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, `vscode-test`, and `repo-map` by name from any project.
 
-Verify that the shell can find all five commands:
+Verify that the shell can find all six commands:
 
 ```bash
-command -v mvn-lite npm-lite html-screenshot launch-browser repo-map
+command -v mvn-lite npm-lite html-screenshot launch-browser vscode-test repo-map
 ```
 
 Update the installed tools from the cloned repository:
