@@ -26,13 +26,13 @@ Do not allow the entire command prefixes without approval. `vscode-test launch` 
 
 ```python
 prefix_rule(
-    pattern = ["vscode-test", ["status", "inspect", "text", "activate"]],
+    pattern = ["vscode-test", ["status", "inspect", "text", "controls", "wait-control", "activate", "stop"]],
     decision = "allow",
-    justification = "Bounded vscode-test inspection and activation need macOS process or localhost access",
+    justification = "Bounded vscode-test operations on a verified managed session need macOS process or localhost access",
 )
 
 prefix_rule(
-    pattern = ["vscode-test", ["launch", "screenshot", "stop"]],
+    pattern = ["vscode-test", ["launch", "click", "palette", "screenshot"]],
     decision = "prompt",
     justification = "vscode-test may launch project code or control a desktop process",
 )

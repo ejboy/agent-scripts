@@ -98,12 +98,16 @@ vscode-test launch --extension-development-path ./extension ./review.code-worksp
 vscode-test inspect page
 vscode-test inspect panel
 vscode-test text panel --limit 2000
+vscode-test controls page --filter "AI Badger"
+vscode-test click --aria-label "Source Control"
+vscode-test palette "AI Badger: Copy Workspace Changes for Review"
+vscode-test wait-control --aria-label "AI Badger: Copy Changes for Review" --count 1
 vscode-test activate
 vscode-test screenshot /tmp/vscode.png
 vscode-test stop
 ```
 
-The launch workspace can be a directory or an existing `.code-workspace` file. The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, and `text` normalizes whitespace and defaults to at most 4,000 characters. Inspection requires Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle. Codex sandbox setup is documented in [the installation guide](docs/installation.md#codex-sandbox-access-for-browser-and-vs-code-tools).
+The launch workspace can be a directory or an existing `.code-workspace` file. The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, `controls` lists visible accessible controls and their enclosing UI context, and `text` normalizes whitespace and defaults to at most 4,000 characters. `click` requires one exact visible aria-label match; `palette` selects one exact command; `wait-control` polls until the exact requested count is rendered. These operations require Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle. Codex sandbox setup is documented in [the installation guide](docs/installation.md#codex-sandbox-access-for-browser-and-vs-code-tools).
 
 ## repo-map
 

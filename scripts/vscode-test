@@ -35,6 +35,10 @@ usage() {
 		'       vscode-test status [--port PORT]' \
 		'       vscode-test inspect [page|panel] [--port PORT]' \
 		'       vscode-test text [page|panel] [--limit CHARS] [--port PORT]' \
+		'       vscode-test controls [page|panel] [--filter TEXT] [--port PORT]' \
+		'       vscode-test click --aria-label LABEL [--port PORT]' \
+		'       vscode-test palette COMMAND [--port PORT]' \
+		'       vscode-test wait-control --aria-label LABEL --count N [--timeout SECONDS] [--port PORT]' \
 		'       vscode-test activate [--port PORT]' \
 		'       vscode-test screenshot OUTPUT' \
 		'       vscode-test stop [--port PORT]' \
@@ -117,7 +121,7 @@ fail_managed_probe() {
 }
 
 run_cdp() {
-	local mode="$1" target="$2" limit="$3" port="$4" script node_version node_major
+	local mode="$1" target="$2" limit="$3" port="$4" value="${5:-}" count="${6:-}" timeout="${7:-}" script node_version node_major
 	command -v node >/dev/null 2>&1 || fail 'node is required for DevTools inspection'
 	if ! cdp_ready "$port"; then
 		[[ ! -f "$(state_file "$port")" ]] || fail_managed_probe "$port"
@@ -131,14 +135,15 @@ const main = async () => {
   const base = process.env.VSCODE_TEST_CDP_URL;
   const targets = await (await fetch(`${base}/json`)).json();
   const panel = process.env.VSCODE_TEST_TARGET === "panel";
-  const evaluate = async (target, expression) => {
+  const connect = async target => {
     const socket = new WebSocket(target.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.onopen = resolve;
       socket.onerror = () => reject(new Error("DevTools WebSocket connection failed"));
     });
-    try {
-      return await new Promise((resolve, reject) => {
+    let nextId = 0;
+    const call = (method, params = {}) => new Promise((resolve, reject) => {
+        const id = ++nextId;
         let settled = false;
         const finish = (fn, value) => {
           if (settled) return;
@@ -154,18 +159,23 @@ const main = async () => {
           finish(reject, new Error("DevTools target closed during evaluation"));
         socket.onmessage = event => {
           const message = JSON.parse(event.data);
-          if (message.id !== 1) return;
+          if (message.id !== id) return;
           if (message.error || message.result?.exceptionDetails) {
             finish(reject, new Error("DevTools evaluation failed"));
           } else {
-            finish(resolve, message.result.result.value);
+            const remote = message.result?.result;
+            finish(resolve, remote && Object.hasOwn(remote, "value") ? remote.value : message.result);
           }
         };
-        socket.send(JSON.stringify({id: 1, method: "Runtime.evaluate", params: {expression, returnByValue: true}}));
+        socket.send(JSON.stringify({id, method, params}));
       });
-    } finally {
-      if (socket.readyState === WebSocket.OPEN) socket.close();
-    }
+    return {socket, call};
+  };
+  const evaluate = async (target, expression) => {
+    const connection = await connect(target);
+    try {
+      return await connection.call("Runtime.evaluate", {expression, returnByValue: true, awaitPromise: true});
+    } finally { if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close(); }
   };
   let target;
   if (panel) {
@@ -182,11 +192,37 @@ const main = async () => {
     if (!target) throw new Error("no page target found");
   }
   const root = panel ? `document.querySelector("#active-frame").contentDocument` : `document`;
-  const expression = process.env.VSCODE_TEST_MODE === "text"
+  const mode = process.env.VSCODE_TEST_MODE;
+  const input = JSON.stringify(process.env.VSCODE_TEST_VALUE || "");
+  const visible = `e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=="hidden"&&s.display!=="none"}`;
+  const controls = `(()=>{const d=${root},visible=${visible},filter=${input}.toLocaleLowerCase();return [...d.querySelectorAll("button,input,select,textarea,[role],[aria-label],[title]")].filter(visible).map(e=>{const context=[...function*(){let n=e.parentElement;while(n&&n!==d.body){if(n.matches(".pane-header,.view-pane,.scm-view,.monaco-list-row,[role=group],[role=treeitem]"))yield n;n=n.parentElement}}()].slice(0,4).map(n=>({role:n.getAttribute("role")||"",label:n.getAttribute("aria-label")||n.getAttribute("title")||n.querySelector(":scope > .title,.name,.label-name")?.textContent?.trim()||"",class:String(n.className||"")}));const ariaLabel=e.getAttribute("aria-label")||"",title=e.getAttribute("title")||"",command=e.dataset.commandId||e.dataset.actionId||e.getAttribute("data-command")||e.getAttribute("href")||ariaLabel||title;return {ariaLabel,title,role:e.getAttribute("role")||e.tagName.toLowerCase(),command,context}}).filter(x=>!filter||JSON.stringify(x).toLocaleLowerCase().includes(filter))})()`;
+  const expression = mode === "text"
     ? `(${root}).body?.innerText || ""`
+    : mode === "controls" ? controls
+    : mode === "click" ? `(()=>{const d=${root},visible=${visible},label=${input};const found=[...d.querySelectorAll("[aria-label]")].filter(e=>visible(e)&&e.getAttribute("aria-label")===label);if(found.length!==1)throw new Error("expected exactly one visible control with aria-label " + JSON.stringify(label) + ", found " + found.length);found[0].click();return {clicked:label}})()`
     : `(()=>{const d=${root};return {title:d.title,url:d.location?.href || location.href,ready:d.readyState,frames:d.defaultView?.frames.length || 0,controls:d.querySelectorAll("button,input,select,textarea,[role=button]").length,textLength:(d.body?.innerText || "").length}})()`;
+  if (mode === "wait-control") {
+    const expected = Number(process.env.VSCODE_TEST_COUNT);
+    const timeout = Number(process.env.VSCODE_TEST_TIMEOUT) * 1000;
+    const waitExpression = `(async()=>{const d=${root},visible=${visible},label=${input},expected=${expected},deadline=Date.now()+${timeout};let actual=0;do{actual=[...d.querySelectorAll("[aria-label]")].filter(e=>visible(e)&&e.getAttribute("aria-label")===label).length;if(actual===expected)return {ariaLabel:label,count:actual};await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);throw new Error("timed out waiting for " + expected + " visible controls with aria-label " + JSON.stringify(label) + "; found " + actual)})()`;
+    const result = await evaluate(target, waitExpression);
+    process.stdout.write(JSON.stringify(result) + "\n");
+    return;
+  }
+  if (mode === "palette") {
+    const connection = await connect(target);
+    try {
+      for (const type of ["keyDown", "keyUp"]) await connection.call("Input.dispatchKeyEvent", {type, key:"p", code:"KeyP", modifiers:12});
+      await new Promise(r=>setTimeout(r,150));
+      await connection.call("Input.insertText", {text:process.env.VSCODE_TEST_VALUE});
+      const choose = `(async()=>{const d=${root},wanted=${input},deadline=Date.now()+5000;do{const rows=[...d.querySelectorAll(".quick-input-list .monaco-list-row")];const exact=rows.filter(e=>(e.querySelector(".label-name")?.textContent||e.getAttribute("aria-label")||e.textContent||"").trim()===wanted);if(exact.length===1){exact[0].click();return {command:wanted}}if(exact.length>1)throw new Error("palette command is ambiguous: " + wanted);await new Promise(r=>setTimeout(r,100))}while(Date.now()<deadline);throw new Error("palette command not found: " + wanted)})()`;
+      const response = await connection.call("Runtime.evaluate", {expression:choose, returnByValue:true, awaitPromise:true});
+      process.stdout.write(JSON.stringify(response) + "\n");
+    } finally { if (connection.socket.readyState === WebSocket.OPEN) connection.socket.close(); }
+    return;
+  }
   const result = await evaluate(target, expression);
-  if (process.env.VSCODE_TEST_MODE === "text") {
+  if (mode === "text") {
     const limit = Number(process.env.VSCODE_TEST_LIMIT);
     const text = String(result).replace(/\s+/g, " ").trim();
     process.stdout.write(text.slice(0, limit) + (text.length > limit ? "…" : "") + "\n");
@@ -195,6 +231,7 @@ const main = async () => {
 main().catch(error => { console.error(`Error: ${error.message}`); process.exit(1); });
 NODE
 	VSCODE_TEST_MODE="$mode" VSCODE_TEST_TARGET="$target" VSCODE_TEST_LIMIT="$limit" \
+		VSCODE_TEST_VALUE="$value" VSCODE_TEST_COUNT="$count" VSCODE_TEST_TIMEOUT="$timeout" \
 		VSCODE_TEST_CDP_URL="http://127.0.0.1:$port" node -e "$script"
 }
 
@@ -291,18 +328,26 @@ case "$command_name" in
 		done
 		printf 'VS Code ready: pid=%s cdp=http://127.0.0.1:%s\n' "$code_pid" "$port"
 		;;
-	status|inspect|text|stop)
+	status|inspect|text|controls|click|palette|wait-control|stop)
 		port="$default_port" target="page" limit="4000"
-		if [[ "$command_name" == inspect || "$command_name" == text ]]; then case "${1:-}" in page|panel) target="$1"; shift ;; esac; fi
+		value="" count="" timeout="10"
+		if [[ "$command_name" == inspect || "$command_name" == text || "$command_name" == controls ]]; then case "${1:-}" in page|panel) target="$1"; shift ;; esac; fi
+		if [[ "$command_name" == palette ]]; then (($# > 0)) || fail 'palette requires a command'; value="$1"; shift; fi
 		while (($# > 0)); do
 			case "$1" in
 				--port) (($# >= 2)) || fail '--port requires a value'; port="$2"; shift 2 ;;
 				--limit) [[ "$command_name" == text ]] || fail '--limit is only valid with text'; (($# >= 2)) || fail '--limit requires a value'; limit="$2"; shift 2 ;;
+				--filter) [[ "$command_name" == controls ]] || fail '--filter is only valid with controls'; (($# >= 2)) || fail '--filter requires a value'; value="$2"; shift 2 ;;
+				--aria-label) [[ "$command_name" == click || "$command_name" == wait-control ]] || fail '--aria-label is only valid with click or wait-control'; (($# >= 2)) || fail '--aria-label requires a value'; value="$2"; shift 2 ;;
+				--count) [[ "$command_name" == wait-control ]] || fail '--count is only valid with wait-control'; (($# >= 2)) || fail '--count requires a value'; count="$2"; shift 2 ;;
+				--timeout) [[ "$command_name" == wait-control ]] || fail '--timeout is only valid with wait-control'; (($# >= 2)) || fail '--timeout requires a value'; timeout="$2"; shift 2 ;;
 				*) fail "unknown argument: $1" ;;
 			esac
 		done
 		validate_port "$port"
 		[[ "$limit" =~ ^[1-9][0-9]*$ ]] || fail 'limit must be a positive integer'
+		if [[ "$command_name" == click || "$command_name" == wait-control ]]; then [[ -n "$value" ]] || fail '--aria-label is required'; fi
+		if [[ "$command_name" == wait-control ]]; then [[ "$count" =~ ^[0-9]+$ ]] || fail '--count must be a non-negative integer'; [[ "$timeout" =~ ^[1-9][0-9]*$ ]] || fail '--timeout must be a positive integer'; fi
 		case "$command_name" in
 			status)
 				file="$(state_file "$port")"
@@ -331,6 +376,10 @@ case "$command_name" in
 				;;
 			inspect) run_cdp inspect "$target" "$limit" "$port" ;;
 			text) run_cdp text "$target" "$limit" "$port" ;;
+			controls) run_cdp controls "$target" "$limit" "$port" "$value" ;;
+			click) run_cdp click page "$limit" "$port" "$value" ;;
+			palette) run_cdp palette page "$limit" "$port" "$value" ;;
+			wait-control) run_cdp wait-control page "$limit" "$port" "$value" "$count" "$timeout" ;;
 			stop)
 				file="$(state_file "$port")"; read_state "$file" || fail "no launch state found for port $port"
 				pid="$state_pid"; [[ -n "$pid" && "$pid" != *[!0-9]* ]] || fail "invalid PID in $file"

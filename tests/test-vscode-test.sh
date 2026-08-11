@@ -131,6 +131,17 @@ status=$?
 set -e
 [[ "$status" -eq 1 && "$output" == *'requires Node.js 22+'* && "$output" == *'found 20.19.0'* ]] || fail_test 'unsupported Node.js version did not fail clearly'
 [[ "$(run_tool text page --limit 250 --port 9333)" == '{"mode":"text","target":"page","limit":250}' ]] || fail_test 'text options were not routed'
+[[ "$(run_tool controls page --filter 'AI Badger' --port 9333)" == '{"mode":"controls","target":"page","limit":4000}' ]] || fail_test 'controls options were not routed'
+[[ "$(run_tool click --aria-label 'Source Control' --port 9333)" == '{"mode":"click","target":"page","limit":4000}' ]] || fail_test 'click options were not routed'
+[[ "$(run_tool palette 'AI Badger: Copy Workspace Changes for Review' --port 9333)" == '{"mode":"palette","target":"page","limit":4000}' ]] || fail_test 'palette options were not routed'
+[[ "$(run_tool wait-control --aria-label 'AI Badger: Copy Changes for Review' --count 1 --timeout 5 --port 9333)" == '{"mode":"wait-control","target":"page","limit":4000}' ]] || fail_test 'wait-control options were not routed'
+grep -Fq 'pane-header,.view-pane,.scm-view,.monaco-list-row' "$root/scripts/vscode-test" || fail_test 'control inspection omitted placement context'
+grep -Fq 'dataset.commandId||e.dataset.actionId' "$root/scripts/vscode-test" || fail_test 'control inspection omitted command identity'
+set +e
+output="$(run_tool wait-control --aria-label test --port 9333 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 1 && "$output" == *'--count must be a non-negative integer'* ]] || fail_test 'wait-control accepted a missing count'
 managed_pid="$(<"$test_root/code-pid")"
 [[ "$(run_tool activate --port 9333)" == "VS Code activated: pid=$managed_pid" ]] || fail_test 'activation output was unexpected'
 grep -Fxq -- "$managed_pid" "$test_root/osascript-args" || fail_test 'activation did not target the managed PID'
