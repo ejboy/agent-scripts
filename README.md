@@ -30,17 +30,20 @@ See the [installation guide](docs/installation.md) for shell setup, updates, and
 
 ## repo-map
 
-`repo-map` is a machine-local registry for discovering related repositories and useful commands across projects. It is intended primarily for coding agents: a project can point an agent at `repo-map` instead of duplicating machine-specific paths and capability lists.
+`repo-map` is a machine-local registry for discovering related repositories and useful commands across projects. Projects should document their required commands directly; coding agents can use `repo-map` to discover additional machine-local capabilities and related repositories.
 
 ```bash
 repo-map
 repo-map commands
+repo-map commands --check
 repo-map add ~/src/aibadger
 repo-map show aibadger
 repo-map get aibadger
 ```
 
-`repo-map` exposes a curated set of `agent-scripts` commands as built-in capabilities. These commands are intended to be invoked by name and assume the `agent-scripts` `scripts/` directory is on `PATH`. They are not written to the user registry. The intentionally user-editable registry at `~/.agent-scripts/repo-map` stores additional local repositories, descriptions, notes, and command metadata. `repo-map` does not scan repositories or infer a repository's build system. Its simple records use `repo|name|path|description|notes` and `command|name|command|description` lines.
+`repo-map commands` lists registered capabilities; registration does not guarantee that a command is currently usable. Run `repo-map commands --check` to resolve each command on the current `PATH`; it exits nonzero if any registered command is unavailable. `repo-map list` discovers related repositories.
+
+`repo-map` exposes a curated set of `agent-scripts` commands as built-in capabilities. These commands are intended to be invoked by name and assume the `agent-scripts` `scripts/` directory is on `PATH`. They are not written to the user registry. The intentionally user-editable registry at `~/.agent-scripts/repo-map` stores additional local repositories, descriptions, notes, and command metadata. `repo-map` does not scan repositories, infer a repository's build system, manage dependencies, or run project tasks. Its simple records use `repo|name|path|description|notes` and `command|name|command|description` lines.
 
 ## mvn-lite
 

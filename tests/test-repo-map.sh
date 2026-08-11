@@ -31,6 +31,17 @@ before_status="$(git -C "$repo_one" status --porcelain)"
 
 output="$(run_map --help)"
 [[ "$output" == *'repo-map [list]'* ]] || fail_test '--help did not show usage'
+for subcommand in list add show get remove commands; do
+	output="$(run_map "$subcommand" --help)"
+	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help did not show subcommand usage"
+done
+mkdir -p "$test_root/home/.agent-scripts"
+printf '%s\n' 'not-a-record' >"$test_root/home/.agent-scripts/repo-map"
+for subcommand in list add show get remove commands; do
+	output="$(run_map "$subcommand" --help)"
+	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help depended on a valid registry"
+done
+rm -- "$test_root/home/.agent-scripts/repo-map"
 output="$(run_map)"
 [[ "$output" == *'agent-scripts'* && "$output" == *'[built-in]'* ]] || fail_test 'fresh HOME omitted built-in repository'
 [[ ! -e "$test_root/home/.agent-scripts/repo-map" ]] || fail_test 'built-in discovery created a user registry'
@@ -45,7 +56,9 @@ for builtin_command in mvn-lite html-screenshot launch-browser repo-map npm-lite
 	[[ "$output" == *"$builtin_command"* ]] || fail_test "built-in command was missing: $builtin_command"
 done
 output="$(run_map commands)"
-[[ "$output" == *'mvn-lite'* && "$output" == *'agent-scripts'* ]] || fail_test 'fresh commands omitted built-in capabilities'
+[[ "$output" == *'Registered commands:'* && "$output" == *'mvn-lite'* && "$output" == *'agent-scripts'* ]] || fail_test 'fresh commands omitted built-in capabilities'
+output="$(PATH="$root/scripts:$PATH" run_map commands --check)"
+[[ "$output" == *'COMMAND'* && "$output" == *'available'* && "$output" == *"$root/scripts/mvn-lite"* ]] || fail_test 'commands --check did not resolve built-in commands'
 
 (cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repo-map" add)
 registry="$test_root/home/.agent-scripts/repo-map"
@@ -73,6 +86,13 @@ output="$(run_map show first-repository)"
 
 output="$(run_map commands)"
 [[ "$output" == *'mvn-lite'* && "$output" == *'first-repository'* && "$output" == *'html-screenshot'* ]] || fail_test 'commands did not aggregate metadata'
+
+printf '%s\n' 'command|first-repository|definitely-unavailable-command|Unavailable test command' >>"$registry"
+set +e
+unavailable_output="$(PATH="$root/scripts:$PATH" run_map commands --check 2>&1)"
+unavailable_status=$?
+set -e
+[[ "$unavailable_status" -ne 0 && "$unavailable_output" == *'definitely-unavailable-command'* && "$unavailable_output" == *'missing'* ]] || fail_test 'commands --check did not fail for an unavailable command'
 
 set +e
 duplicate_output="$(run_map add "$repo_two" 2>&1)"

@@ -40,11 +40,38 @@ usage() {
 		'       repo-map show NAME' \
 		'       repo-map get NAME' \
 		'       repo-map remove NAME' \
-		'       repo-map commands' \
+		'       repo-map commands [--check]' \
 		'' \
 		'Maintain a local registry of repositories and agent-usable commands.' \
 		'' \
 		"Registry: $REGISTRY"
+}
+
+subcommand_usage() {
+	case "$1" in
+		list)
+			printf '%s\n' 'Usage: repo-map list' '' 'List registered repositories.'
+			;;
+		add)
+			printf '%s\n' 'Usage: repo-map add [PATH]' '' 'Register a Git repository. PATH defaults to the current directory.'
+			;;
+		show)
+			printf '%s\n' 'Usage: repo-map show NAME' '' 'Show metadata for a registered repository.'
+			;;
+		get)
+			printf '%s\n' 'Usage: repo-map get NAME' '' 'Print the path of a registered repository.'
+			;;
+		remove)
+			printf '%s\n' 'Usage: repo-map remove NAME' '' 'Remove a repository and its command metadata from the registry.'
+			;;
+		commands)
+			printf '%s\n' \
+				'Usage: repo-map commands [--check]' \
+				'' \
+				'List registered command capabilities.' \
+				'With --check, resolve each command on PATH and fail if any are unavailable.'
+			;;
+	esac
 }
 
 repo_names=()
@@ -132,7 +159,7 @@ initialize_builtin() {
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
 			'Local repository and agent-capability discovery'
-			'Compact output for selected npm test and verification workflows'
+			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
 			"${command_descriptions[@]}"
 		)
 	else
@@ -141,7 +168,7 @@ initialize_builtin() {
 			'Render local HTML or URLs to PNG'
 			'Launch Chrome with DevTools enabled'
 			'Local repository and agent-capability discovery'
-			'Compact output for selected npm test and verification workflows'
+			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
 		)
 	fi
 	for command_name in mvn-lite html-screenshot launch-browser repo-map npm-lite; do
@@ -269,10 +296,28 @@ get_repository() {
 list_commands() {
 	local index repo_index
 	((${#command_names[@]} > 0)) || return 0
+	printf 'Registered commands:\n'
 	for index in "${!command_names[@]}"; do
 		repo_index="$(repository_index "${command_repos[index]}")" || fail "command references unknown repository: ${command_repos[index]}"
 		printf '%-16s %-16s %s\n' "${command_names[index]}" "${repo_names[repo_index]}" "${command_descriptions[index]}"
 	done
+}
+
+check_commands() {
+	local index repo_index resolved status=0
+	((${#command_names[@]} > 0)) || return 0
+	printf '%-16s %-16s %-10s %s\n' 'COMMAND' 'REPOSITORY' 'STATUS' 'PATH'
+	for index in "${!command_names[@]}"; do
+		repo_index="$(repository_index "${command_repos[index]}")" || fail "command references unknown repository: ${command_repos[index]}"
+		resolved="$(type -P -- "${command_names[index]}" 2>/dev/null || true)"
+		if [[ -n "$resolved" ]]; then
+			printf '%-16s %-16s %-10s %s\n' "${command_names[index]}" "${repo_names[repo_index]}" 'available' "$resolved"
+		else
+			printf '%-16s %-16s %-10s %s\n' "${command_names[index]}" "${repo_names[repo_index]}" 'missing' '-'
+			status=1
+		fi
+	done
+	return "$status"
 }
 
 remove_repository() {
@@ -287,6 +332,15 @@ command="${1:-list}"
 if [[ "$command" == --help || "$command" == -h ]]; then
 	usage
 	exit 0
+fi
+if [[ "${2:-}" == --help || "${2:-}" == -h ]]; then
+	case "$command" in
+		list|add|show|get|remove|commands)
+			(($# == 2)) || fail "$command does not accept additional arguments with help"
+			subcommand_usage "$command"
+			exit 0
+			;;
+	esac
 fi
 load_registry
 validate_user_commands
@@ -305,8 +359,11 @@ case "$command" in
 		"${command}_repository" "$2"
 		;;
 	commands)
-		(($# == 1)) || fail 'commands does not accept arguments'
-		list_commands
+		case "${2:-}" in
+			'') (($# == 1)) || fail 'commands accepts at most one option'; list_commands ;;
+			--check) (($# == 2)) || fail 'commands accepts at most one option'; check_commands ;;
+			*) fail "unknown commands option: ${2:-}" ;;
+		esac
 		;;
 	--help|-h)
 		usage
