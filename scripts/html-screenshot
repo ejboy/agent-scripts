@@ -186,7 +186,5 @@ fi
 render_success=true
 if [[ "$verbose" == true ]]; then
 	cat "$stderr_file" >&2
-else
-	grep -v 'CVDisplayLinkCreateWithCGDisplay failed\. CVReturn: -6670' "$stderr_file" >&2 || true
 fi
 printf 'Screenshot: %s\n' "$output"

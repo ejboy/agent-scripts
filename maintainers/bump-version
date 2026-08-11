@@ -56,6 +56,7 @@ printf '%s\n' "$new_version" >"$version_file"
 update_script_version scripts/mvn-lite mvn-lite AGENT_SCRIPTS_VERSION
 update_script_version scripts/launch-browser launch-browser AGENT_SCRIPTS_VERSION
 update_script_version scripts/html-screenshot html-screenshot AGENT_SCRIPTS_VERSION
+update_script_version scripts/repo-map repo-map AGENT_SCRIPTS_VERSION
 update_script_version scripts/npm-lite npm-lite AGENT_SCRIPTS_VERSION
 update_readme_version
 
@@ -63,6 +64,7 @@ update_readme_version
 ./tests/test-mvn-lite.sh
 ./tests/test-launch-browser.sh
 ./tests/test-html-screenshot.sh
+./tests/test-repo-map.sh
 ./tests/test-npm-lite.sh
 if command -v shellcheck >/dev/null 2>&1; then
 	shellcheck --severity=warning \
@@ -70,4 +72,4 @@ if command -v shellcheck >/dev/null 2>&1; then
 fi
 
 printf '\nUpdated agent-scripts from %s to %s.\n\n' "$current_version" "$new_version"
-git diff -- README.md docs/installation.md VERSION scripts/mvn-lite scripts/launch-browser scripts/html-screenshot scripts/npm-lite
+git diff -- README.md docs/installation.md VERSION scripts/mvn-lite scripts/launch-browser scripts/html-screenshot scripts/repo-map scripts/npm-lite

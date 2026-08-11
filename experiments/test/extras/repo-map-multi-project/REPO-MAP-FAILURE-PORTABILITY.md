@@ -48,3 +48,25 @@ commands were not silently treated as usable, malformed data failed early, and
 explicit aliases handled duplicate upstream naming. Portability remains manual,
 and the read-only sandbox limitation observed during the experiment has since
 been resolved.
+
+## Post-fix rerun: 2026-08-10
+
+The read-only cases were rerun against the live registry inside a macOS sandbox
+profile that denied all filesystem writes except writes to `/dev/null`. The
+first attempt found that Bash's here-string used by the registry parser still
+created a temporary file even though the script no longer called `mktemp` for
+read-only operations. The parser was changed to consume `printf` output through
+process substitution instead.
+
+After that correction, both targeted operations passed in the strict profile:
+
+| Operation | Exit | Output | Unrelated entries printed |
+| --- | ---: | ---: | ---: |
+| `repo-map get aibadger` | 0 | 1 line, 45 bytes | 0 |
+| `repo-map command html-screenshot` | 0 | 5 lines, 178 bytes | 0 |
+
+The repository lookup printed only the resolved target path. The command lookup
+printed only the named capability's repository, availability, resolved path,
+and description. This rerun closes the strict read-only limitation while also
+showing why blocking only the external `mktemp` executable was insufficient
+evidence.

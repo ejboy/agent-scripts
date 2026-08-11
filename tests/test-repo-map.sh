@@ -30,7 +30,9 @@ git -C "$repo_one" -c user.name=test -c user.email=test@example.test commit -q -
 before_status="$(git -C "$repo_one" status --porcelain)"
 
 output="$(run_map --help)"
-[[ "$output" == *'repo-map [list]'* ]] || fail_test '--help did not show usage'
+expected_version="$(<"$root/VERSION")"
+[[ "$output" == "repo-map $expected_version"$'\n\n'*'repo-map [list]'* ]] || fail_test '--help did not show version and usage'
+[[ "$(run_map --version)" == "repo-map $expected_version" ]] || fail_test '--version output was incorrect'
 for subcommand in list add show get remove command commands; do
 	output="$(run_map "$subcommand" --help)"
 	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help did not show subcommand usage"
@@ -69,6 +71,7 @@ chmod +x "$fake_bin/mktemp"
 for action in 'list' 'show agent-scripts' 'get agent-scripts' 'command html-screenshot' 'commands' 'commands --check'; do
 	PATH="$fake_bin:$root/scripts:$PATH" run_map $action >/dev/null || fail_test "read-only operation required mktemp: $action"
 done
+! grep -Fq '<<<' "$root/scripts/repo-map" || fail_test 'repo-map used a temporary-file-backed here-string'
 
 (cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repo-map" add)
 registry="$test_root/home/.agent-scripts/repo-map"

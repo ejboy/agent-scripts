@@ -57,3 +57,31 @@ repository without reading unrelated source trees. This one task also shows its
 cost: generic discovery took more commands and exposed broader metadata than a
 correct static path. Guidance should name a stable alias when the target is
 known and reserve `list` for genuinely open-ended discovery.
+
+## Post-fix rerun: 2026-08-10
+
+Two new ephemeral Codex sessions repeated the same read-only task from empty
+fixture directories under a strict read-only agent sandbox. The static session
+received the same repository path. The discovery session received the known
+`aibadger` alias and the current instruction to use `repo-map get aibadger`
+without listing repositories.
+
+| Property | Static path | Targeted `repo-map` guidance |
+| --- | ---: | ---: |
+| Correct repository | Yes | Yes |
+| Correct module and entrypoint | Yes | Yes |
+| Shell command executions | 2 | 2 |
+| Repositories inspected | 1 | 1 |
+| Unrelated repository contents read | 0 | 0 |
+| Repository metadata exposed | One target | One target |
+| Clarification or correction in final run | None | None |
+
+Both sessions again reported the same module and `cmd/badger` entrypoint. The
+targeted session called `repo-map get aibadger` once and then inspected only the
+resolved repository. The lookup exited 0 and emitted one line (45 bytes in this
+environment); it did not print any unrelated registry aliases or metadata.
+
+An initial guided rerun exposed a remaining shell-level temporary-file write in
+the registry parser. That implementation issue was corrected before the final
+paired run and is detailed in the failure and portability report. No prompt
+clarification or behavioral correction was required in the final run.

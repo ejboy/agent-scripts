@@ -17,6 +17,7 @@ cat >"$fake_chrome" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$@" >"$FAKE_CHROME_CALLS"
+printf '%s\n' 'fake non-actionable Chrome diagnostic' >&2
 if [[ "${FAKE_CHROME_MODE:-write}" == fail ]]; then
 	printf '%s\n' 'fake Chrome failure' >&2
 	exit 9
@@ -56,6 +57,8 @@ grep -Fxq -- '--force-device-scale-factor=2' "$calls" || fail_test 'scale was no
 grep -Fxq -- '--no-sandbox' "$calls" || fail_test 'no-sandbox was not passed to Chrome'
 expected_url="file://$(cd -- "$(dirname -- "$html")" && pwd)/$(basename -- "$html")"
 grep -Fxq "$expected_url" "$calls" || fail_test 'local HTML was not selected as a file URL'
+verbose_output="$(run_renderer --verbose --output "$test_root/verbose.png" "$html" 2>&1)"
+[[ "$verbose_output" == *'fake non-actionable Chrome diagnostic'* && "$verbose_output" == *'Screenshot:'* ]] || fail_test 'verbose mode omitted Chrome diagnostics or success output'
 rm -f -- "$expected_output"
 output_file="$test_root/output.png"
 special_html="$test_root/special #%?.html"
@@ -96,6 +99,7 @@ status=$?
 set -e
 [[ "$status" -eq 1 ]] || fail_test 'failed Chrome render succeeded'
 [[ "$(<"$output_file")" == stale ]] || fail_test 'existing screenshot was not restored after Chrome failure'
+[[ "$output" == *'fake Chrome failure'* ]] || fail_test 'Chrome failure diagnostics were omitted'
 [[ "$output" == *'Chrome failed to render'* ]] || fail_test 'Chrome failure error was unclear'
 
 printf '%s\n' 'html-screenshot tests passed'

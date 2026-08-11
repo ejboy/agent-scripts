@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Status: Baseline complete; post-fix rerun planned.
+Status: Complete, including post-fix rerun.
 
 Publication note: Project and repository names are retained where they make the
 results understandable. Published evidence excludes private source, plans,
@@ -19,17 +19,17 @@ Preserve and compare every run in the supplemental
   the target is unknown.
 - [x] Add automated coverage for targeted command lookup and read-only
   operations; run the full test suite and required static checks.
-- [ ] Verify read-only `repo-map` operations in a real strict read-only agent
+- [x] Verify read-only `repo-map` operations in a real strict read-only agent
   sandbox.
-- [ ] Verify targeted repository resolution without listing unrelated entries.
-- [ ] Verify targeted command resolution without listing unrelated capabilities.
-- [ ] Rerun the fresh-session discovery comparison and record command count,
+- [x] Verify targeted repository resolution without listing unrelated entries.
+- [x] Verify targeted command resolution without listing unrelated capabilities.
+- [x] Rerun the fresh-session discovery comparison and record command count,
   exposed metadata, and any correction required.
-- [ ] If `launch-browser` changes, verify it against its documented
+- [x] If `launch-browser` changes, verify it against its documented
   managed-session reuse policy.
-- [ ] If `html-screenshot` changes, verify successful output excludes
+- [x] If `html-screenshot` changes, verify successful output excludes
   non-actionable Chrome diagnostics.
-- [ ] Add dated rerun results to the supplemental reports without replacing the
+- [x] Add dated rerun results to the supplemental reports without replacing the
   baseline, then append the comparable results to the run history.
 
 ## Rerun protocol
@@ -180,11 +180,21 @@ correct static path and exposed the full registry listing. Strictly read-only
 execution also revealed unnecessary temporary-file creation by a read-only
 `repo-map` operation.
 
+The post-fix rerun used the known `aibadger` alias and reduced the `repo-map`
+session to two shell commands, matching the static-path session without exposing
+unrelated registry entries. A strict no-write rerun exposed one remaining Bash
+here-string temporary-file write; replacing it with pipe-based parsing allowed
+targeted repository and command lookups to pass with filesystem writes denied.
+`html-screenshot` was then changed to suppress diagnostics after successful
+renders and verified against real Chrome with one-line output. `launch-browser`
+did not change, so its conditional rerun was not required.
+
 The output wrappers preserved results and exit statuses while sharply reducing
 successful output. They did not improve execution speed. Browser screenshots
-were byte-identical to direct Chrome output, but `launch-browser` failed instead
-of reusing an existing managed DevTools session and `html-screenshot` still
-surfaced some non-actionable Chrome diagnostics.
+were byte-identical to direct Chrome output. The baseline `html-screenshot` run
+surfaced some non-actionable Chrome diagnostics; the post-fix rerun eliminated
+them from successful default output. `launch-browser` still failed instead of
+reusing an existing managed DevTools session.
 
 ## Conclusion
 
@@ -199,3 +209,8 @@ task. `repo-map` remains useful for portable machine-local discovery, but known
 targets should use stable aliases, read-only operations should work in strict
 read-only sandboxes, and managed-browser reuse needs correction or clearer
 documentation.
+
+The completed rerun confirms that the updated targeted guidance removes the
+baseline discovery overhead for this task and that current read-only operations
+work in a strict no-write sandbox. Successful `html-screenshot` output is now
+one actionable line; the `launch-browser` qualification remains unchanged.

@@ -59,3 +59,16 @@ equivalent direct Chrome command and handled replacement failures safely. Its
 input validation was more actionable and its successful terminal output was
 smaller, though still noisy. Managed-browser reuse did not work as documented
 when DevTools was already active and needs separate correction or documentation.
+
+## Quiet-output rerun: 2026-08-10
+
+`html-screenshot` was updated to suppress Chrome stderr after a successful
+non-verbose render while continuing to retain it for `--verbose` and failed
+renders. A real Chrome smoke test rendered a local HTML fixture successfully and
+printed exactly one line naming the screenshot path. The resulting PNG was
+6,158 bytes. Focused automated tests also confirmed that successful default
+output excludes a simulated non-actionable diagnostic, verbose output includes
+it, and failure output retains Chrome's error evidence.
+
+This closes the successful-output noise issue. The separate managed-session
+reuse issue belongs to `launch-browser`, which did not change in this rerun.

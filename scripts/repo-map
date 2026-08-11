@@ -1,5 +1,12 @@
 #!/usr/bin/env bash
+
+# repo-map 0.2.0
+# Maintain a local registry of repositories and agent-usable commands.
+# https://github.com/ejboy/agent-scripts
+
 set -euo pipefail
+
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
 
 readonly REGISTRY_DIR="${HOME}/.agent-scripts"
 readonly REGISTRY="${REGISTRY_DIR}/repo-map"
@@ -35,6 +42,8 @@ fail() {
 
 usage() {
 	printf '%s\n' \
+		"repo-map $AGENT_SCRIPTS_VERSION" \
+		'' \
 		'Usage: repo-map [list]' \
 		'       repo-map add [PATH]' \
 		'       repo-map show NAME' \
@@ -94,7 +103,7 @@ load_registry() {
 	while IFS= read -r line || [[ -n "$line" ]]; do
 		registry_lines+=("$line")
 		[[ -z "$line" || "${line:0:1}" == '#' ]] && continue
-		IFS='|' read -r type name path description notes extra <<< "$line"
+		IFS='|' read -r type name path description notes extra < <(printf '%s\n' "$line")
 		[[ -z "$extra" ]] || fail "malformed registry line: $line"
 		case "$type" in
 			repo)
@@ -356,6 +365,11 @@ remove_repository() {
 }
 
 command="${1:-list}"
+if [[ "$command" == --version ]]; then
+	(($# == 1)) || fail '--version does not accept arguments'
+	printf 'repo-map %s\n' "$AGENT_SCRIPTS_VERSION"
+	exit 0
+fi
 if [[ "$command" == --help || "$command" == -h ]]; then
 	usage
 	exit 0

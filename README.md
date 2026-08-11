@@ -194,7 +194,7 @@ html-screenshot --width 1440 --height 900 --wait 1000 -o /tmp/page.png examples/
 html-screenshot --scale 2 https://example.com
 ```
 
-It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait; use `--verbose` to retain Chrome diagnostics.
+It discovers standard macOS Chrome and Chromium application locations before checking `PATH`. Use `--chrome /path/to/chrome` or `CHROME_BIN=/path/to/chrome` to select an executable explicitly. The default viewport is 1280×720 with a 500 ms virtual-time wait. Successful default output is one line; use `--verbose` to retain Chrome diagnostics. Failed renders always include Chrome diagnostics.
 
 Release maintenance is documented in [maintainers/README.md](maintainers/README.md).
 
