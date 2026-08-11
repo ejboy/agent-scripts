@@ -21,8 +21,8 @@ not listed. Further work continues with Phase 3 (Multipass and other detectors).
 
 ## Progress
 
-Current Phase: Phase 3 — Add more authoritative workload detectors  
-Current Chunk: Chunk 9 — Multipass  
+Current Phase: Phase 3 — Add more authoritative workload detectors
+Current Chunk: Chunk 9 — Multipass
 Status: Active
 
 Note: Chunk 7 (repo launch-browser safe-stop) was dropped. Browsers are
@@ -539,7 +539,7 @@ and helpers are ignored.
 
 #### Chunk 8 — Gradle, Kotlin, and Maven daemon lifecycle support
 
-Status: [x] implementation complete  
+Status: [x] implementation complete
 Deferred (not blocking Phase 3): multi-version Gradle fixtures; local Gradle/mvnd dogfood.
 
 Preconditions:
