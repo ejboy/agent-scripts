@@ -54,21 +54,30 @@ forward_signal() {
 
 extract_test_count() {
 	awk '
-		match($0, /[0-9]+ passing/) {
-			value = substr($0, RSTART, RLENGTH)
+		{
+			line = $0
+			gsub(sprintf("%c", 27) "\\[[0-9;?]*[ -/]*[@-~]", "", line)
+		}
+		match(line, /[0-9]+ passing/) {
+			value = substr(line, RSTART, RLENGTH)
 			sub(/ passing$/, "", value)
 			count = value
 		}
-		match($0, /Tests:[[:space:]]+[0-9]+ passed/) {
-			value = substr($0, RSTART, RLENGTH)
+		match(line, /Tests:[[:space:]]+[0-9]+ passed/) {
+			value = substr(line, RSTART, RLENGTH)
 			sub(/^Tests:[[:space:]]+/, "", value)
 			sub(/ passed$/, "", value)
 			count = value
 		}
-		match($0, /Tests[[:space:]]+[0-9]+ passed/) {
-			value = substr($0, RSTART, RLENGTH)
+		match(line, /Tests[[:space:]]+[0-9]+ passed/) {
+			value = substr(line, RSTART, RLENGTH)
 			sub(/^Tests[[:space:]]+/, "", value)
 			sub(/ passed$/, "", value)
+			count = value
+		}
+		match(line, /passing:[[:space:]]+[0-9]+/) {
+			value = substr(line, RSTART, RLENGTH)
+			sub(/^passing:[[:space:]]+/, "", value)
 			count = value
 		}
 		END {
@@ -77,6 +86,114 @@ extract_test_count() {
 			}
 		}
 	' "$1"
+}
+
+extract_failure_context() {
+	awk '
+		function copy_previous(target_lines, target_numbers,    first, i, slot) {
+			first = NR > 2 ? NR - 2 : 1
+			for (i = first; i < NR; i++) {
+				slot = ((i - 1) % 2) + 1
+				target_lines[++target_lines[0]] = previous_lines[slot]
+				target_numbers[target_lines[0]] = i
+			}
+		}
+		function reset_latest(    i) {
+			for (i in latest_lines) {
+				delete latest_lines[i]
+			}
+			for (i in latest_numbers) {
+				delete latest_numbers[i]
+			}
+			copy_previous(latest_lines, latest_numbers)
+		}
+		function add_selected(number, line) {
+			if (!(number in selected)) {
+				selected[number] = line
+				numbers[++selected_count] = number
+			}
+		}
+		{
+			normalized = $0
+			gsub(sprintf("%c", 27) "\\[[0-9;?]*[ -/]*[@-~]", "", normalized)
+			lower = tolower(normalized)
+			marker = lower ~ /(^|[^[:alpha:]])(fail|failed|failure|error|typeerror|assertionerror|expected|actual|received|not ok)([^[:alpha:]]|$)/
+			if (marker && !first_marker_found) {
+				first_marker_found = 1
+				copy_previous(first_lines, first_numbers)
+				first_lines[++first_lines[0]] = $0
+				first_numbers[first_lines[0]] = NR
+				first_remaining = 7
+			}
+			else if (first_remaining > 0) {
+				first_lines[++first_lines[0]] = $0
+				first_numbers[first_lines[0]] = NR
+				first_remaining--
+			}
+			if (marker) {
+				reset_latest()
+				latest_lines[++latest_lines[0]] = $0
+				latest_numbers[latest_lines[0]] = NR
+				latest_remaining = 7
+			}
+			else if (latest_remaining > 0) {
+				latest_lines[++latest_lines[0]] = $0
+				latest_numbers[latest_lines[0]] = NR
+				latest_remaining--
+			}
+			previous_slot = ((NR - 1) % 2) + 1
+			previous_lines[previous_slot] = $0
+			tail_slot = ((NR - 1) % 30) + 1
+			tail_lines[tail_slot] = $0
+			tail_numbers[tail_slot] = NR
+		}
+		END {
+			for (i = 1; i <= first_lines[0]; i++) {
+				add_selected(first_numbers[i], first_lines[i])
+			}
+			for (i = 1; i <= latest_lines[0]; i++) {
+				add_selected(latest_numbers[i], latest_lines[i])
+			}
+			first_tail = NR > 29 ? NR - 29 : 1
+			for (i = first_tail; i <= NR; i++) {
+				tail_slot = ((i - 1) % 30) + 1
+				add_selected(tail_numbers[tail_slot], tail_lines[tail_slot])
+			}
+			for (i = 2; i <= selected_count; i++) {
+				number = numbers[i]
+				j = i - 1
+				while (j >= 1 && numbers[j] > number) {
+					numbers[j + 1] = numbers[j]
+					j--
+				}
+				numbers[j + 1] = number
+			}
+			previous = 0
+			for (i = 1; i <= selected_count; i++) {
+				number = numbers[i]
+				if (previous > 0 && number > previous + 1) {
+					print "[... diagnostics omitted ...]"
+				}
+				print selected[number]
+				previous = number
+			}
+		}
+	' "$1"
+}
+
+print_bounded_context() {
+	local excerpt excerpt_bytes half_bytes
+	excerpt="$(extract_failure_context "$1")"
+	excerpt_bytes="$(printf '%s' "$excerpt" | wc -c | tr -d ' ')"
+	if ((excerpt_bytes <= FAILURE_EXCERPT_BYTES)); then
+		printf '%s\n' "$excerpt"
+		return
+	fi
+	half_bytes="$((FAILURE_EXCERPT_BYTES / 2 - 32))"
+	printf '%s' "$excerpt" | head -c "$half_bytes"
+	printf '\n[... diagnostics omitted by byte limit ...]\n'
+	printf '%s' "$excerpt" | tail -c "$half_bytes"
+	printf '\n'
 }
 
 mode="passthrough"
@@ -130,8 +247,14 @@ if ((status == 0)); then
 	fi
 else
 	printf 'FAIL · exit %d · %s s\n\n' "$status" "$duration" > "$visible_file"
-	printf '[failure diagnostics limited to the last 80 lines and %d bytes]\n' "$FAILURE_EXCERPT_BYTES" >> "$visible_file"
-	tail -n 80 "$log_file" | tail -c "$FAILURE_EXCERPT_BYTES" >> "$visible_file"
+	log_lines="$(awk 'END { print NR }' "$log_file")"
+	log_bytes="$(wc -c < "$log_file" | tr -d ' ')"
+	if ((log_lines <= 80 && log_bytes <= FAILURE_EXCERPT_BYTES)); then
+		command cat "$log_file" >> "$visible_file"
+	else
+		printf '[failure diagnostics selected from error context and the final summary; limited to 80 lines and %d bytes]\n' "$FAILURE_EXCERPT_BYTES" >> "$visible_file"
+		print_bounded_context "$log_file" >> "$visible_file"
+	fi
 	printf '\nLog: %s\n' "$log_file" >> "$visible_file"
 fi
 

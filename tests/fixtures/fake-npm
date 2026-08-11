@@ -15,13 +15,34 @@ case "${FAKE_NPM_MODE:-success}" in
 		exit 7
 		;;
 	long-failure)
-		for line in {1..119}; do
+		printf 'FAIL npm-lite induced failure\n'
+		printf 'Actual: actual\n'
+		printf 'Expected: expected\n'
+		for line in {1..116}; do
 			printf 'diagnostic line %d\n' "$line"
 		done
 		printf 'diagnostic line 120 '
 		printf '%*s' 20000 '' | tr ' ' x
 		printf '\n'
+		printf 'failing: 1\n'
 		exit 8
+		;;
+	streaming-failure)
+		printf 'FAIL streaming failure\n'
+		printf 'Actual: actual\n'
+		printf 'Expected: expected\n'
+		for line in {1..250000}; do
+			printf 'streaming diagnostic line %d\n' "$line"
+		done
+		printf 'failing: 1\n'
+		exit 10
+		;;
+	unterminated-failure)
+		for line in {1..80}; do
+			printf 'diagnostic line %d\n' "$line"
+		done
+		printf 'FAIL unterminated line 81'
+		exit 11
 		;;
 	signal-wait)
 		trap 'exit 130' INT
@@ -34,6 +55,9 @@ case "${FAKE_NPM_MODE:-success}" in
 		;;
 	no-count)
 		printf 'completed without a recognized test count\n'
+		;;
+	ansi-tap)
+		printf '\033[32mpassing:\033[39m   \033[32m1108\033[39m\n'
 		;;
 	*)
 		printf 'unknown fake mode\n' >&2

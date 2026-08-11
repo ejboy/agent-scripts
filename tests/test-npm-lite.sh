@@ -39,6 +39,9 @@ output="$(FAKE_NPM_MODE=success run_lite run verify)"
 output="$(FAKE_NPM_MODE=no-count run_lite run test:unit)"
 [[ "$output" == "PASS · "*" s" ]] || fail_test "count-free success summary missing"
 
+output="$(FAKE_NPM_MODE=ansi-tap run_lite run test:unit)"
+[[ "$output" == "PASS · 1108 tests · "*" s" ]] || fail_test "ANSI-colored TAP count was not extracted"
+
 output="$(FAKE_NPM_MODE=success run_lite install left-pad)"
 [[ "$output" == $'setup output\n267 passing (4s)' ]] || fail_test "unsupported command did not pass through"
 
@@ -65,6 +68,7 @@ set -e
 [[ "$status" -eq 7 ]] || fail_test "compact failure exit status was not preserved"
 [[ "$output" == *"FAIL · exit 7"* ]] || fail_test "failure summary missing"
 [[ "$output" == *"AssertionError: expected true but got false"* ]] || fail_test "failure detail missing"
+[[ "$output" != *"failure diagnostics selected"* ]] || fail_test "short failure was incorrectly described as limited"
 log_file="$(sed -n 's/^Log: //p' <<<"$output")"
 [[ -f "$log_file" ]] || fail_test "failure log was not retained"
 
@@ -83,13 +87,34 @@ set -e
 [[ "$status" -eq 8 ]] || fail_test "bounded failure exit status was not preserved"
 [[ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -le 85 ]] || fail_test "failure diagnostics were not bounded by lines"
 [[ "$(printf '%s' "$output" | wc -c | tr -d ' ')" -le 8192 ]] || fail_test "failure diagnostics were not bounded by bytes"
-[[ "$output" == *"failure diagnostics limited"* ]] || fail_test "failure truncation was not identified"
-if grep -Fxq 'diagnostic line 1' <<<"$output"; then
-	fail_test "failure diagnostics were not tailed"
-fi
+[[ "$output" == *"failure diagnostics selected"* ]] || fail_test "failure truncation was not identified"
+[[ "$output" == *"npm-lite induced failure"* ]] || fail_test "early failure marker was omitted"
+[[ "$output" == *"Actual: actual"* ]] || fail_test "early actual value was omitted"
+[[ "$output" == *"Expected: expected"* ]] || fail_test "early expected value was omitted"
+[[ "$output" == *"failing: 1"* ]] || fail_test "final failure summary was omitted"
 [[ ! -e "$old_log" ]] || fail_test "old npm-lite failure log was not pruned"
 [[ -f "$recent_log" ]] || fail_test "recent npm-lite failure log was pruned"
 [[ -f "$unrelated_log" ]] || fail_test "unrelated log was pruned"
+
+set +e
+output="$(FAKE_NPM_MODE=streaming-failure run_lite run verify 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 10 ]] || fail_test "streaming failure exit status was not preserved"
+[[ "$output" == *"FAIL streaming failure"* ]] || fail_test "streaming failure marker was omitted"
+[[ "$output" == *"Actual: actual"* ]] || fail_test "streaming actual value was omitted"
+[[ "$output" == *"Expected: expected"* ]] || fail_test "streaming expected value was omitted"
+[[ "$output" == *"failing: 1"* ]] || fail_test "streaming final summary was omitted"
+[[ "$(printf '%s\n' "$output" | wc -l | tr -d ' ')" -le 85 ]] || fail_test "streaming diagnostics were not bounded by lines"
+[[ "$(printf '%s' "$output" | wc -c | tr -d ' ')" -le 8192 ]] || fail_test "streaming diagnostics were not bounded by bytes"
+
+set +e
+output="$(FAKE_NPM_MODE=unterminated-failure run_lite run verify 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 11 ]] || fail_test "unterminated failure exit status was not preserved"
+[[ "$output" == *"failure diagnostics selected"* ]] || fail_test "81 logical lines were incorrectly printed as a short failure"
+[[ "$output" == *"FAIL unterminated line 81"* ]] || fail_test "unterminated final line was omitted"
 
 rm -rf -- "$project_dir/.agent-logs"
 : >"$project_dir/.agent-logs"
@@ -197,10 +222,13 @@ while fields:
 assert calls == [
 	["run", "verify"],
 	["run", "test:unit"],
+	["run", "test:unit"],
 	["install", "left-pad"],
 	["run", "verify", "--", "--watch"],
 	["--loglevel", sys.argv[2]],
 	["install", "left-pad"],
+	["run", "verify"],
+	["run", "verify"],
 	["run", "verify"],
 	["run", "verify"],
 	["run", "verify"],
