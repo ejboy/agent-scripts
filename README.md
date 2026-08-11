@@ -94,6 +94,7 @@ Release maintenance is documented in [maintainers/README.md](maintainers/README.
 
 ```bash
 vscode-test launch --extension-development-path ./extension ./fixture
+vscode-test launch --extension-development-path ./extension ./review.code-workspace
 vscode-test inspect page
 vscode-test inspect panel
 vscode-test text panel --limit 2000
@@ -102,7 +103,7 @@ vscode-test screenshot /tmp/vscode.png
 vscode-test stop
 ```
 
-The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, and `text` normalizes whitespace and defaults to at most 4,000 characters. Inspection requires Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle.
+The launch workspace can be a directory or an existing `.code-workspace` file. The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, and `text` normalizes whitespace and defaults to at most 4,000 characters. Inspection requires Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle. Codex sandbox setup is documented in [the installation guide](docs/installation.md#codex-sandbox-access-for-browser-and-vs-code-tools).
 
 ## repo-map
 

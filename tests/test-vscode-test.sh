@@ -9,10 +9,12 @@ trap cleanup EXIT
 bin_dir="$test_root/bin"
 home_dir="$test_root/home"
 workspace="$test_root/workspace"
+workspace_file="$test_root/review.code-workspace"
 code_args="$test_root/code-args"
 fake_app="$test_root/Visual Studio Code Test.app"
 fake_code="$fake_app/Contents/MacOS/Code"
 mkdir -p "$bin_dir" "$home_dir" "$workspace" "$(dirname -- "$fake_code")"
+printf '{"folders":[{"path":"workspace"}]}\n' >"$workspace_file"
 
 fail_test() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 
@@ -102,6 +104,18 @@ grep -Fxq -- '--remote-debugging-port=9333' "$code_args" || fail_test 'DevTools 
 grep -Fxq -- "--extensionDevelopmentPath=$test_root/extension" "$code_args" || fail_test 'extension path was not passed'
 grep -Fxq -- "$workspace" "$code_args" || fail_test 'workspace was not passed'
 [[ "$(run_tool status --port 9333)" == 'VS Code ready: pid='*' cdp=http://127.0.0.1:9333' ]] || fail_test 'status output was unexpected'
+rm -f -- "$test_root/ready"
+set +e
+output="$(run_tool status --port 9333 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 1 && "$output" == *'sandbox restrictions may be blocking process or localhost probes'* && "$output" == *'approve this vscode-test invocation'* ]] || fail_test 'status did not explain a probable sandbox restriction'
+set +e
+output="$(run_tool inspect page --port 9333 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 1 && "$output" == *'sandbox restrictions may be blocking process or localhost probes'* && "$output" == *'approve this vscode-test invocation'* ]] || fail_test 'inspect did not explain a probable sandbox restriction'
+printf ready >"$test_root/ready"
 set +e
 output="$(run_tool launch --port 9333 "$workspace" 2>&1)"
 status=$?
@@ -131,6 +145,12 @@ output="$(FAKE_CODE_IGNORE_FIRST_TERM=true run_tool launch --port 9333 "$workspa
 [[ "$(run_tool stop --port 9333)" == 'VS Code stopped: pid='* ]] || fail_test 'stop did not retry termination'
 [[ -f "$test_root/code-term-seen" ]] || fail_test 'first termination was not ignored by the fixture'
 [[ ! -f "$home_dir/.agent-scripts/vscode-test/launch-9333.state" ]] || fail_test 'retried stop retained launch state'
+
+rm -f -- "$test_root/lsof-attempted"
+output="$(run_tool launch --port 9333 "$workspace_file")"
+[[ "$output" == 'VS Code ready: pid='* ]] || fail_test '.code-workspace launch output was unexpected'
+grep -Fxq -- "$workspace_file" "$code_args" || fail_test '.code-workspace file was not passed'
+[[ "$(run_tool stop --port 9333)" == 'VS Code stopped: pid='* ]] || fail_test '.code-workspace session did not stop'
 
 printf 'service=test.dead\npid=999999\nlog=%s\n' "$test_root/dead.log" >"$home_dir/.agent-scripts/vscode-test/launch-9333.state"
 printf '999999\n' >"$test_root/code-pid"

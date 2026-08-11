@@ -370,6 +370,6 @@ for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
 done
 
 keep_chrome_log=true
-printf 'Error: Chrome DevTools did not become ready at %s within 5 seconds; a sandboxed process may need permission to launch Chrome\n' "$cdp_url" >&2
+printf 'Error: Chrome DevTools did not become ready at %s within 5 seconds; sandbox restrictions may be blocking Chrome or localhost probes. Run launch-browser outside the sandbox or approve this launch-browser invocation\n' "$cdp_url" >&2
 print_chrome_log
 exit 1

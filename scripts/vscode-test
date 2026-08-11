@@ -40,6 +40,7 @@ usage() {
 		'       vscode-test stop [--port PORT]' \
 		'' \
 		'Launch options:' \
+		'  WORKSPACE                   Directory or .code-workspace file' \
 		'  --port PORT                 DevTools port (default: 9223)' \
 		'  --user-data-dir PATH        Profile directory' \
 		'  --extensions-dir PATH       Extensions directory' \
@@ -110,10 +111,18 @@ remove_service() {
 	launchctl remove "$service" >/dev/null 2>&1 || true
 }
 
+fail_managed_probe() {
+	local port="$1"
+	fail "could not verify the managed VS Code session on port $port; sandbox restrictions may be blocking process or localhost probes. Run vscode-test outside the sandbox or approve this vscode-test invocation; state was retained"
+}
+
 run_cdp() {
 	local mode="$1" target="$2" limit="$3" port="$4" script node_version node_major
 	command -v node >/dev/null 2>&1 || fail 'node is required for DevTools inspection'
-	cdp_ready "$port" || fail "VS Code DevTools is not ready on port $port"
+	if ! cdp_ready "$port"; then
+		[[ ! -f "$(state_file "$port")" ]] || fail_managed_probe "$port"
+		fail "VS Code DevTools is not ready on port $port"
+	fi
 	node_version="$(node -p 'process.versions.node' 2>/dev/null)" || fail 'could not determine the Node.js version'
 	node_major="${node_version%%.*}"
 	[[ "$node_major" =~ ^[0-9]+$ ]] && ((node_major >= 22)) || fail "DevTools inspection requires Node.js 22+ (found $node_version)"
@@ -213,7 +222,13 @@ case "$command_name" in
 		done
 		validate_port "$port"
 		[[ -n "$workspace" ]] || fail 'a workspace is required'
-		[[ -d "$workspace" ]] || fail "workspace directory not found: $workspace"
+		if [[ -d "$workspace" ]]; then
+			:
+		elif [[ -f "$workspace" && "$workspace" == *.code-workspace ]]; then
+			:
+		else
+			fail "workspace not found or not a directory/.code-workspace file: $workspace"
+		fi
 		[[ -x "$code_bin" ]] || fail "VS Code executable not found: $code_bin"
 		app_path="$(cd -- "$(dirname -- "$code_bin")/../.." && pwd -P)"
 		command -v curl >/dev/null 2>&1 || fail 'curl is required to check DevTools readiness'
@@ -302,13 +317,16 @@ case "$command_name" in
 				fi
 				recorded_process_state="$(process_state "$state_pid")"
 				if [[ "$recorded_process_state" == dead ]]; then
+					if cdp_ready "$port"; then
+						fail "recorded process is dead but DevTools endpoint remains on port $port; state was retained"
+					fi
 					rm -f -- "$file"
 					fail "stale launch state removed: recorded process is dead (pid=${state_pid:-unknown})"
 				fi
 				if [[ "$recorded_process_state" == unknown ]]; then
-					fail "could not determine whether recorded PID $state_pid exists; state was retained"
+					fail_managed_probe "$port"
 				fi
-				cdp_ready "$port" || fail "managed process is alive but DevTools endpoint is missing on port $port"
+				cdp_ready "$port" || fail_managed_probe "$port"
 				fail "DevTools endpoint PID does not match managed PID $state_pid; state was retained"
 				;;
 			inspect) run_cdp inspect "$target" "$limit" "$port" ;;
