@@ -22,6 +22,7 @@ separately under `maintainers/` and is not part of the public utility interface.
 Clone the repository and add its `scripts/` directory to `PATH`:
 
 ```bash
+mkdir -p "$HOME/.local/share"
 git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-scripts
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
@@ -58,7 +59,7 @@ formats, failure diagnostics, logs, limitations, and experiment evidence.
 
 ## launch-browser
 
-`scripts/launch-browser` is a separate macOS utility for starting Google Chrome with DevTools enabled at `http://127.0.0.1:9222`. It defaults to detached headless mode.
+`launch-browser` is a separate macOS utility for starting Google Chrome with DevTools enabled at `http://127.0.0.1:9222`. It defaults to detached headless mode.
 
 ```bash
 launch-browser
@@ -74,7 +75,7 @@ The temporary launch log is removed when Chrome exits normally; abnormal-exit lo
 
 ## html-screenshot
 
-`scripts/html-screenshot` is a one-shot headless Chrome renderer for local HTML files, `file://` URLs, and HTTP(S) URLs. It does not start or manage a reusable browser instance.
+`html-screenshot` is a one-shot headless Chrome renderer for local HTML files, `file://` URLs, and HTTP(S) URLs. It does not start or manage a reusable browser instance.
 
 ```bash
 html-screenshot examples/page.html

@@ -5,11 +5,18 @@
 Clone the repository and add its `scripts/` directory to `PATH`:
 
 ```bash
+mkdir -p "$HOME/.local/share"
 git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-scripts
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. You can then invoke `mvn-lite`, `html-screenshot`, and `launch-browser` by name from any project.
+Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, and `repo-map` by name from any project.
+
+Verify that the shell can find all five commands:
+
+```bash
+command -v mvn-lite npm-lite html-screenshot launch-browser repo-map
+```
 
 Update the installed tools from the cloned repository:
 
