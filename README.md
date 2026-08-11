@@ -34,6 +34,7 @@ See the [installation guide](docs/installation.md) for shell setup, updates, and
 
 ```bash
 repo-map
+repo-map command html-screenshot
 repo-map commands
 repo-map commands --check
 repo-map add ~/src/aibadger
@@ -41,9 +42,13 @@ repo-map show aibadger
 repo-map get aibadger
 ```
 
-`repo-map commands` lists registered capabilities; registration does not guarantee that a command is currently usable. Run `repo-map commands --check` to resolve each command on the current `PATH`; it exits nonzero if any registered command is unavailable. `repo-map list` discovers related repositories.
+Required project commands should be documented directly in each project's `AGENTS.md`. Use `repo-map get NAME` to resolve a known related repository without relying on a machine-specific path, and use `repo-map list` only when the required repository is unknown.
+
+The command catalog is for optional, machine-local helpers. Use `repo-map command NAME` to check a known capability without listing the entire catalog. Use `repo-map commands` only when the needed optional capability is unknown. Registration does not guarantee availability; `repo-map command NAME` checks the named command, while `repo-map commands --check` checks every registration and exits nonzero if any command is unavailable.
 
 `repo-map` exposes a curated set of `agent-scripts` commands as built-in capabilities. These commands are intended to be invoked by name and assume the `agent-scripts` `scripts/` directory is on `PATH`. They are not written to the user registry. The intentionally user-editable registry at `~/.agent-scripts/repo-map` stores additional local repositories, descriptions, notes, and command metadata. `repo-map` does not scan repositories, infer a repository's build system, manage dependencies, or run project tasks. Its simple records use `repo|name|path|description|notes` and `command|name|command|description` lines.
+
+See the [multi-project smoke test and controlled follow-ups](experiments/test/REPO-MAP-MULTI-PROJECT-SMOKE-TEST.md) for real-project discovery, failure, wrapper-output, and browser-helper evidence, including observed limitations and inefficiencies.
 
 ## mvn-lite
 

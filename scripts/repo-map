@@ -40,6 +40,7 @@ usage() {
 		'       repo-map show NAME' \
 		'       repo-map get NAME' \
 		'       repo-map remove NAME' \
+		'       repo-map command NAME' \
 		'       repo-map commands [--check]' \
 		'' \
 		'Maintain a local registry of repositories and agent-usable commands.' \
@@ -63,6 +64,9 @@ subcommand_usage() {
 			;;
 		remove)
 			printf '%s\n' 'Usage: repo-map remove NAME' '' 'Remove a repository and its command metadata from the registry.'
+			;;
+		command)
+			printf '%s\n' 'Usage: repo-map command NAME' '' 'Show availability and metadata for a registered command capability.'
 			;;
 		commands)
 			printf '%s\n' \
@@ -320,6 +324,29 @@ check_commands() {
 	return "$status"
 }
 
+show_command() {
+	local name="$1" index resolved found=0 status=0
+	for index in "${!command_names[@]}"; do
+		[[ "${command_names[index]}" == "$name" ]] || continue
+		if ((found > 0)); then
+			printf '\n'
+		fi
+		found=1
+		resolved="$(type -P -- "${command_names[index]}" 2>/dev/null || true)"
+		printf 'Command: %s\n' "${command_names[index]}"
+		printf 'Repository: %s\n' "${command_repos[index]}"
+		if [[ -n "$resolved" ]]; then
+			printf 'Status: available\nPath: %s\n' "$resolved"
+		else
+			printf 'Status: missing\nPath: -\n'
+			status=1
+		fi
+		printf 'Description: %s\n' "${command_descriptions[index]}"
+	done
+	((found > 0)) || fail "unknown command: $name"
+	return "$status"
+}
+
 remove_repository() {
 	local name="$1"
 	[[ "$name" != "$BUILTIN_REPOSITORY_NAME" ]] || fail "cannot remove built-in repository: $BUILTIN_REPOSITORY_NAME"
@@ -335,7 +362,7 @@ if [[ "$command" == --help || "$command" == -h ]]; then
 fi
 if [[ "${2:-}" == --help || "${2:-}" == -h ]]; then
 	case "$command" in
-		list|add|show|get|remove|commands)
+		list|add|show|get|remove|command|commands)
 			(($# == 2)) || fail "$command does not accept additional arguments with help"
 			subcommand_usage "$command"
 			exit 0
@@ -357,6 +384,10 @@ case "$command" in
 	show|get|remove)
 		(($# == 2)) || fail "$command requires a repository name"
 		"${command}_repository" "$2"
+		;;
+	command)
+		(($# == 2)) || fail 'command requires a command name'
+		show_command "$2"
 		;;
 	commands)
 		case "${2:-}" in

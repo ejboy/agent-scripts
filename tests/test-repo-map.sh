@@ -31,13 +31,13 @@ before_status="$(git -C "$repo_one" status --porcelain)"
 
 output="$(run_map --help)"
 [[ "$output" == *'repo-map [list]'* ]] || fail_test '--help did not show usage'
-for subcommand in list add show get remove commands; do
+for subcommand in list add show get remove command commands; do
 	output="$(run_map "$subcommand" --help)"
 	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help did not show subcommand usage"
 done
 mkdir -p "$test_root/home/.agent-scripts"
 printf '%s\n' 'not-a-record' >"$test_root/home/.agent-scripts/repo-map"
-for subcommand in list add show get remove commands; do
+for subcommand in list add show get remove command commands; do
 	output="$(run_map "$subcommand" --help)"
 	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help depended on a valid registry"
 done
@@ -57,8 +57,18 @@ for builtin_command in mvn-lite html-screenshot launch-browser repo-map npm-lite
 done
 output="$(run_map commands)"
 [[ "$output" == *'Registered commands:'* && "$output" == *'mvn-lite'* && "$output" == *'agent-scripts'* ]] || fail_test 'fresh commands omitted built-in capabilities'
+output="$(PATH="$root/scripts:$PATH" run_map command html-screenshot)"
+[[ "$output" == *'Command: html-screenshot'* && "$output" == *'Repository: agent-scripts'* && "$output" == *'Status: available'* && "$output" == *"Path: $root/scripts/html-screenshot"* && "$output" == *'Description: Render local HTML or URLs to PNG'* ]] || fail_test 'targeted command lookup did not show the available built-in command'
 output="$(PATH="$root/scripts:$PATH" run_map commands --check)"
 [[ "$output" == *'COMMAND'* && "$output" == *'available'* && "$output" == *"$root/scripts/mvn-lite"* ]] || fail_test 'commands --check did not resolve built-in commands'
+
+fake_bin="$test_root/fake-bin"
+mkdir -p "$fake_bin"
+printf '#!/usr/bin/env bash\nexit 99\n' >"$fake_bin/mktemp"
+chmod +x "$fake_bin/mktemp"
+for action in 'list' 'show agent-scripts' 'get agent-scripts' 'command html-screenshot' 'commands' 'commands --check'; do
+	PATH="$fake_bin:$root/scripts:$PATH" run_map $action >/dev/null || fail_test "read-only operation required mktemp: $action"
+done
 
 (cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repo-map" add)
 registry="$test_root/home/.agent-scripts/repo-map"
@@ -86,13 +96,27 @@ output="$(run_map show first-repository)"
 
 output="$(run_map commands)"
 [[ "$output" == *'mvn-lite'* && "$output" == *'first-repository'* && "$output" == *'html-screenshot'* ]] || fail_test 'commands did not aggregate metadata'
+output="$(PATH="$root/scripts:$PATH" run_map command mvn-lite)"
+[[ "$output" == *'Repository: agent-scripts'* && "$output" == *'Repository: first-repository'* ]] || fail_test 'targeted command lookup did not distinguish duplicate registrations'
 
 printf '%s\n' 'command|first-repository|definitely-unavailable-command|Unavailable test command' >>"$registry"
+set +e
+targeted_unavailable_output="$(PATH="$root/scripts:$PATH" run_map command definitely-unavailable-command 2>&1)"
+targeted_unavailable_status=$?
+set -e
+[[ "$targeted_unavailable_status" -ne 0 && "$targeted_unavailable_output" == *'Status: missing'* && "$targeted_unavailable_output" == *'Path: -'* ]] || fail_test 'targeted command lookup did not fail for an unavailable command'
+
 set +e
 unavailable_output="$(PATH="$root/scripts:$PATH" run_map commands --check 2>&1)"
 unavailable_status=$?
 set -e
 [[ "$unavailable_status" -ne 0 && "$unavailable_output" == *'definitely-unavailable-command'* && "$unavailable_output" == *'missing'* ]] || fail_test 'commands --check did not fail for an unavailable command'
+
+set +e
+unknown_command_output="$(run_map command unknown-command 2>&1)"
+unknown_command_status=$?
+set -e
+[[ "$unknown_command_status" -ne 0 && "$unknown_command_output" == *'unknown command'* ]] || fail_test 'targeted command lookup accepted an unknown command'
 
 set +e
 duplicate_output="$(run_map add "$repo_two" 2>&1)"
