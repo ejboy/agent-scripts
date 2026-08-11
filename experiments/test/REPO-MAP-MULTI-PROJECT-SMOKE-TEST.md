@@ -10,16 +10,50 @@ registry contents, machine paths, and other private implementation details.
 
 ## Post-fix rerun checklist
 
-- [ ] Verify read-only `repo-map` operations in a strict read-only sandbox.
+Preserve and compare every run in the supplemental
+[run history](extras/repo-map-multi-project/RUN-HISTORY.md).
+
+- [x] Add targeted command lookup with `repo-map command NAME`.
+- [x] Update guidance to reserve required commands for `AGENTS.md`, use
+  `repo-map get NAME` for a known repository, and use full listings only when
+  the target is unknown.
+- [x] Add automated coverage for targeted command lookup and read-only
+  operations; run the full test suite and required static checks.
+- [ ] Verify read-only `repo-map` operations in a real strict read-only agent
+  sandbox.
 - [ ] Verify targeted repository resolution without listing unrelated entries.
 - [ ] Verify targeted command resolution without listing unrelated capabilities.
 - [ ] Rerun the fresh-session discovery comparison and record command count,
   exposed metadata, and any correction required.
-- [ ] Verify `launch-browser` against its documented managed-session reuse policy.
-- [ ] Verify successful `html-screenshot` output excludes non-actionable Chrome
-  diagnostics.
+- [ ] If `launch-browser` changes, verify it against its documented
+  managed-session reuse policy.
+- [ ] If `html-screenshot` changes, verify successful output excludes
+  non-actionable Chrome diagnostics.
 - [ ] Add dated rerun results to the supplemental reports without replacing the
-  baseline.
+  baseline, then append the comparable results to the run history.
+
+## Rerun protocol
+
+In a new session, read this report and the linked supplemental baseline reports
+before running commands. Inspect the current `repo-map` implementation, README
+guidance, and focused tests. Rerun only checklist items affected by subsequent
+changes; do not repeat npm, Maven, or browser measurements unless their scripts
+or guidance changed.
+
+For the repository-discovery comparison, reuse the baseline's two ephemeral
+fresh-session fixtures and exact read-only task: find AIBadger's public CLI
+repository and report its Go module path and command-entrypoint directory. Give
+one session the static repository path and the other the current `repo-map`
+guidance. For targeted command discovery, use a known optional helper and verify
+that unrelated capabilities and registry entries are not printed.
+
+Record command count, repositories inspected, metadata exposed, clarification
+or correction required, exit status, and relevant output size. Compare results
+with the existing baseline, append a dated rerun section to the affected
+supplemental report, append a new entry to the run history, and check off an item
+only when evidence supports it. Run the repository-required tests and static
+checks after any script or documentation changes. Do not commit, amend, or push
+without explicit approval.
 
 ## Context
 
