@@ -341,6 +341,20 @@ case "$command_name" in
 					if [[ "$pid_running" != true && "$endpoint_running" != true ]]; then break; fi
 					sleep "$readiness_delay_seconds"
 				done
+				if [[ "$pid_running" == true ]]; then
+					current_listener_pid="$(listener_pid "$port")"
+					process_command="$(ps -p "$pid" -o command= 2>/dev/null || true)"
+					if [[ "$current_listener_pid" == "$pid" || "$process_command" == *"--remote-debugging-port=$port"* ]]; then
+						kill -TERM "$pid" 2>/dev/null || true
+						for ((attempt = 1; attempt <= readiness_attempts; attempt++)); do
+							pid_running=false; endpoint_running=false
+							[[ "$(process_state "$pid")" != dead ]] && pid_running=true
+							cdp_ready "$port" && endpoint_running=true
+							if [[ "$pid_running" != true && "$endpoint_running" != true ]]; then break; fi
+							sleep "$readiness_delay_seconds"
+						done
+					fi
+				fi
 				if [[ "$pid_running" == true || "$endpoint_running" == true ]]; then
 					fail "VS Code did not stop cleanly (pid_alive=$pid_running endpoint_alive=$endpoint_running); state was retained"
 				fi

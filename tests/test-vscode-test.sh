@@ -67,6 +67,10 @@ EOF
 cat >"$fake_code" <<'EOF'
 #!/usr/bin/env bash
 cleanup_code() {
+	if [[ "${FAKE_CODE_IGNORE_FIRST_TERM:-false}" == true && ! -f "$FAKE_CODE_TERM_SEEN" ]]; then
+		printf seen >"$FAKE_CODE_TERM_SEEN"
+		return
+	fi
 	rm -f -- "$FAKE_CDP_READY"
 	exit 0
 }
@@ -83,6 +87,8 @@ run_tool() {
 		FAKE_CODE_ARGS="$code_args" FAKE_CODE_PID="$test_root/code-pid" \
 		FAKE_LSOF_ATTEMPTED="$test_root/lsof-attempted" \
 		FAKE_OSASCRIPT_ARGS="$test_root/osascript-args" \
+		FAKE_CODE_IGNORE_FIRST_TERM="${FAKE_CODE_IGNORE_FIRST_TERM:-false}" \
+		FAKE_CODE_TERM_SEEN="$test_root/code-term-seen" \
 		VSCODE_TEST_CODE_BIN="$fake_code" "$root/scripts/vscode-test" "$@"
 }
 
@@ -118,6 +124,13 @@ grep -Fxq -- "$managed_pid" "$test_root/osascript-args" || fail_test 'activation
 [[ -s "$test_root/screen.png" ]] || fail_test 'screenshot was not created'
 [[ "$(run_tool stop --port 9333)" == 'VS Code stopped: pid='* ]] || fail_test 'stop output was unexpected'
 [[ ! -f "$home_dir/.agent-scripts/vscode-test/launch-9333.state" ]] || fail_test 'stop retained launch state'
+
+rm -f -- "$test_root/lsof-attempted"
+output="$(FAKE_CODE_IGNORE_FIRST_TERM=true run_tool launch --port 9333 "$workspace")"
+[[ "$output" == 'VS Code ready: pid='* ]] || fail_test 'second launch output was unexpected'
+[[ "$(run_tool stop --port 9333)" == 'VS Code stopped: pid='* ]] || fail_test 'stop did not retry termination'
+[[ -f "$test_root/code-term-seen" ]] || fail_test 'first termination was not ignored by the fixture'
+[[ ! -f "$home_dir/.agent-scripts/vscode-test/launch-9333.state" ]] || fail_test 'retried stop retained launch state'
 
 printf 'service=test.dead\npid=999999\nlog=%s\n' "$test_root/dead.log" >"$home_dir/.agent-scripts/vscode-test/launch-9333.state"
 printf '999999\n' >"$test_root/code-pid"
