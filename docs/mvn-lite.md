@@ -7,6 +7,9 @@ behavior. It is optimized for build, test, package, install, and verification
 commands. Use `--full` for reporting goals or whenever ordinary Maven output is
 needed.
 
+For the motivation behind the tool, read
+[Introverted Maven](https://pvrlabs.xyz/articles/introverted-maven.html).
+
 It stays close to Maven:
 
 - It operates in the caller's current working directory.
