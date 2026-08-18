@@ -1,6 +1,6 @@
 # Choosing the right tool
 
-The primary tools in this repository, `mvn-lite` and `npm-lite`, target the largest source of context window bloat by stripping output noise from routine builds and tests. Secondary utilities assist with browser automation, VS Code extension testing, and local repository discovery without embedding machine-specific paths in project instructions.
+The primary tools in this repository, `mvn-lite`, `npm-lite`, and `go-lite`, target the largest source of context window bloat by stripping output noise from routine builds and tests. Secondary utilities assist with browser automation, VS Code extension testing, and local repository discovery without embedding machine-specific paths in project instructions.
 
 ## Quick guide
 
@@ -8,6 +8,7 @@ The primary tools in this repository, `mvn-lite` and `npm-lite`, target the larg
 | --- | --- | --- | --- |
 | **Primary** | `mvn-lite` | Running routine Maven builds, tests, packaging, installation, or verification | Running reporting or inspection goals, or when ordinary live Maven output is required; use `mvn-lite --full` |
 | **Primary** | `npm-lite` | Running `npm run verify`, `npm run test:unit`, or direct `node --test` | Running any other npm or Node workflow; unsupported commands pass through unchanged |
+| **Primary** | `go-lite` | Running routine `go test` commands while keeping successful output compact | Running non-test Go commands, or when ordinary live test output is required; use `go-lite --full` |
 | **Secondary** | `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
 | **Secondary** | `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
 | **Secondary** | `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |
@@ -15,7 +16,7 @@ The primary tools in this repository, `mvn-lite` and `npm-lite`, target the larg
 
 ## Measured output savings
 
-The experiments show that `mvn-lite` and `npm-lite` provide the largest measurable context savings. They reduce presentation volume rather than accelerating the underlying commands.
+The wrappers provide context savings by reducing presentation volume rather than accelerating the underlying commands. `go-lite` is intentionally a small first version without test counting or broad Go diagnostic parsing.
 
 | Workflow | Baseline output | Wrapped output | Reduction |
 | --- | ---: | ---: | ---: |
@@ -38,7 +39,7 @@ Most baselines in the table are matched direct-command output. The Commons CLI b
 
 The three-project npm table records the version originally measured. That experiment exposed missing ANSI-normalized TAP counts and weak context selection for long failures; both were addressed afterward. The current implementation prints short failures in full and selects marker-aware context for long failures, so its failure byte counts will differ from the historical measurements. It still trusts npm's exit status and discards successful logs, which can hide warnings or errors from a project command that exits successfully.
 
-On failure, both wrappers preserve the underlying exit status and retain the complete raw log. Compact failure output is intentionally larger than successful output because it must identify the next action. When the summary is insufficient, inspect the retained log, use `mvn-lite --full` for Maven, or run the corresponding `npm` command directly for npm workflows.
+On failure, all three wrappers preserve the underlying exit status and retain the complete raw log. Compact failure output is intentionally larger than successful output because it must identify the next action. When the summary is insufficient, inspect the retained log, use `mvn-lite --full` for Maven, `go-lite --full` for Go, or run the corresponding `npm` command directly for npm workflows.
 
 The measurements do not demonstrate faster execution. Run order, caches, JVM startup, and machine activity make the small observed timing differences unsuitable as performance evidence.
 

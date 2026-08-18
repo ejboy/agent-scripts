@@ -35,6 +35,7 @@ assert_script_version "$root/scripts/launch-browser" launch-browser AGENT_SCRIPT
 assert_script_version "$root/scripts/html-screenshot" html-screenshot AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/repo-map" repo-map AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/npm-lite" npm-lite AGENT_SCRIPTS_VERSION
+assert_script_version "$root/scripts/go-lite" go-lite AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/vscode-test" vscode-test AGENT_SCRIPTS_VERSION
 
 grep -Fq "badge/version-$expected_version-blue" "$root/README.md" ||

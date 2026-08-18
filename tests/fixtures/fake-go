@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+printf '%s\0' "$#" "$@" >>"${FAKE_GO_ARGS_FILE:?}"
+{
+	printf 'GOCACHE=%s\n' "${GOCACHE-unset}"
+	printf 'GO_LITE_CACHE_DIR=%s\n' "${GO_LITE_CACHE_DIR-unset}"
+	printf 'GOMODCACHE=%s\n' "${GOMODCACHE-unset}"
+	printf 'GOPATH=%s\n' "${GOPATH-unset}"
+	printf 'FAKE_UNRELATED=%s\n' "${FAKE_UNRELATED-unset}"
+} >"${FAKE_GO_ENV_FILE:?}"
+
+case "${FAKE_GO_MODE:-success}" in
+	success)
+		printf '%s\n' '? example.test [no test files]'
+		printf '%s\n' 'ok    example.test/internal/storage    0.004s' >&2
+		;;
+	small-failure)
+		printf '%s\n' '--- FAIL: TestFoo (0.00s)'
+		printf '%s\n' '    fake_test.go:12: expected true, got false'
+		printf '%s\n' 'FAIL'
+		printf '%s\n' 'FAIL    example.test/internal/storage    0.001s'
+		exit "${FAKE_GO_STATUS:-23}"
+		;;
+	large-failure)
+		printf '%s\n' 'package example.test/internal/storage'
+		printf '%s\n' 'fake.go:123:45: undefined: MissingThing'
+		printf '%s\n' '--- FAIL: TestLarge (0.00s)'
+		for line in {1..120}; do
+			printf 'diagnostic line %d\n' "$line"
+		done
+		printf '%s\n' 'FAIL    example.test/internal/storage    0.002s'
+		exit "${FAKE_GO_STATUS:-29}"
+		;;
+	byte-failure)
+		printf '%s\n' '--- FAIL: TestByteLimit (0.00s)'
+		for line in {1..30}; do
+			printf 'large diagnostic line %d ' "$line"
+			printf '%*s' 500 '' | tr ' ' x
+			printf '\n'
+		done
+		printf '%s\n' 'FAIL    example.test/internal/storage    0.003s'
+		exit "${FAKE_GO_STATUS:-37}"
+		;;
+	full)
+		printf '%s\n' 'live go stdout'
+		printf '%s\n' 'live go stderr' >&2
+		;;
+	read-stdin)
+		if IFS= read -r input && [[ "$input" == 'stdin input' ]]; then
+			exit 0
+		fi
+		exit 31
+		;;
+	passthrough)
+		printf '%s\n' 'go passthrough output'
+		;;
+	*)
+		printf 'unknown fake Go mode\n' >&2
+		exit 9
+		;;
+esac

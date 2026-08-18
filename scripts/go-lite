@@ -1,0 +1,252 @@
+#!/usr/bin/env bash
+
+# go-lite 0.2.0
+# Compact Go test output for coding-agent workflows.
+# https://github.com/ejboy/agent-scripts
+
+set -euo pipefail
+
+readonly AGENT_SCRIPTS_VERSION="0.2.0"
+readonly FAILURE_EXCERPT_BYTES=7000
+readonly LOG_RETENTION_MINUTES=10080
+readonly DEFAULT_CACHE_DIR="/tmp/go-lite-cache"
+
+started_at="$(date +%s)"
+project_dir="$PWD"
+log_dir="$project_dir/.agent-logs/go"
+log_file=""
+full=false
+keep_log=false
+
+fail() {
+	printf 'Error: %s\n' "$1" >&2
+	exit 2
+}
+
+prepare_cache_dir() {
+	if [[ -n "${GOCACHE+x}" && ( -z "$cache_dir" || "$cache_dir" == off ) ]]; then
+		return 0
+	fi
+	mkdir -p -- "$cache_dir" || fail "could not create Go cache directory: $cache_dir"
+}
+
+print_go_lite_help() {
+	printf 'go-lite %s\n' "$AGENT_SCRIPTS_VERSION"
+	printf 'Compact Go test output for coding agents\n\n'
+	printf 'Usage:\n'
+	printf '  go-lite [wrapper options] [Go arguments]\n\n'
+	printf 'Wrapper options:\n'
+	printf '  --full, --raw       Stream complete go output\n'
+	printf '  --keep-log          Retain a successful compact-run log\n'
+	printf '  --help-go-lite      Show this help\n\n'
+	printf 'Only go test uses compact mode; other Go commands pass through unchanged.\n'
+}
+
+while (($# > 0)); do
+	case "$1" in
+		--help-go-lite)
+			print_go_lite_help
+			exit 0
+			;;
+		--full|--raw)
+			full=true
+			shift
+			;;
+		--keep-log)
+			keep_log=true
+			shift
+			;;
+		--)
+			shift
+			break
+			;;
+		*)
+			break
+			;;
+	esac
+done
+
+go_args=("$@")
+compact=false
+if ((${#go_args[@]} > 0)) && [[ "${go_args[0]}" == "test" ]]; then
+	compact=true
+fi
+
+if [[ "$compact" != true || "$full" == true ]]; then
+	if [[ "$compact" == true ]]; then
+		if [[ -n "${GOCACHE+x}" ]]; then
+			cache_dir="$GOCACHE"
+		elif [[ -n "${GO_LITE_CACHE_DIR:-}" ]]; then
+			cache_dir="$GO_LITE_CACHE_DIR"
+		else
+			cache_dir="$DEFAULT_CACHE_DIR"
+		fi
+		prepare_cache_dir
+		if [[ -n "${GOCACHE+x}" ]]; then
+			exec go "${go_args[@]}"
+		fi
+		GOCACHE="$cache_dir" exec go "${go_args[@]}"
+	fi
+	exec go "${go_args[@]}"
+fi
+
+prune_old_logs() {
+	find "$log_dir" -type f -name 'go-*.log.*' -mmin "+$LOG_RETENTION_MINUTES" \
+		-exec rm -f -- {} + 2>/dev/null || true
+}
+
+extract_failure_context() {
+	awk '
+		function add_selected(number, line) {
+			if (!(number in selected)) {
+				selected[number] = line
+				numbers[++selected_count] = number
+			}
+		}
+		function is_marker(line) {
+			return line ~ /--- FAIL:/ ||
+				line ~ /(^|[[:space:]])FAIL([:[:space:]]|$)/ ||
+				line ~ /panic:/ ||
+				line ~ /(^|[[:space:]])[^[:space:]]*\.go:[0-9]+(:[0-9]+)?:/
+		}
+		{
+			normalized = $0
+			gsub(sprintf("%c", 27) "\\[[0-9;?]*[ -/]*[@-~]", "", normalized)
+			if (head_count < 24) {
+				head_lines[++head_count] = $0
+				head_numbers[head_count] = NR
+			}
+			marker = is_marker(normalized)
+			if (!first_found && marker) {
+				if (previous_two_number > 0) {
+					add_selected(previous_two_number, previous_two)
+				}
+				if (previous_one_number > 0) {
+					add_selected(previous_one_number, previous_one)
+				}
+				add_selected(NR, $0)
+				first_found = 1
+				first_remaining = 8
+			} else if (first_remaining > 0) {
+				add_selected(NR, $0)
+				first_remaining--
+			}
+			tail_slot = ((NR - 1) % 24) + 1
+			tail_lines[tail_slot] = $0
+			tail_numbers[tail_slot] = NR
+			previous_two = previous_one
+			previous_two_number = previous_one_number
+			previous_one = $0
+			previous_one_number = NR
+		}
+		END {
+			if (!first_found) {
+				for (i = 1; i <= head_count; i++) {
+					add_selected(head_numbers[i], head_lines[i])
+				}
+			}
+			first_tail = NR > 23 ? NR - 23 : 1
+			for (line_number = first_tail; line_number <= NR; line_number++) {
+				tail_slot = ((line_number - 1) % 24) + 1
+				add_selected(tail_numbers[tail_slot], tail_lines[tail_slot])
+			}
+			for (i = 2; i <= selected_count; i++) {
+				number = numbers[i]
+				j = i - 1
+				while (j >= 1 && numbers[j] > number) {
+					numbers[j + 1] = numbers[j]
+					j--
+				}
+				numbers[j + 1] = number
+			}
+			previous = 0
+			for (i = 1; i <= selected_count; i++) {
+				number = numbers[i]
+				if (previous > 0 && number > previous + 1) {
+					print "[... diagnostics omitted ...]"
+				}
+				print selected[number]
+				previous = number
+			}
+		}
+	' "$1"
+}
+
+print_bounded_context() {
+	local excerpt="$1" line_count bytes
+	line_count="$(printf '%s\n' "$excerpt" | awk 'END { print NR }')"
+	if ((line_count > 72)); then
+		excerpt="$(
+			printf '%s\n' "$excerpt" | head -n 35
+			printf '%s\n' '[... diagnostics omitted by line limit ...]'
+			printf '%s\n' "$excerpt" | tail -n 35
+		)"
+	fi
+	bytes="$(printf '%s' "$excerpt" | wc -c | tr -d ' ')"
+	if ((bytes <= FAILURE_EXCERPT_BYTES)); then
+		printf '%s\n' "$excerpt"
+		return
+	fi
+	head -c 3400 <<<"$excerpt"
+	printf '\n[... diagnostics omitted by byte limit ...]\n'
+	tail -c 3400 <<<"$excerpt"
+	printf '\n'
+}
+
+if [[ -n "${GOCACHE+x}" ]]; then
+	cache_dir="$GOCACHE"
+elif [[ -n "${GO_LITE_CACHE_DIR:-}" ]]; then
+	cache_dir="$GO_LITE_CACHE_DIR"
+else
+	cache_dir="$DEFAULT_CACHE_DIR"
+fi
+prepare_cache_dir
+
+mkdir -p -- "$log_dir" || fail "could not create Go log directory: $log_dir"
+log_file="$(umask 077; mktemp "$log_dir/go-$(date '+%Y%m%d-%H%M%S')-$$.log.XXXXXX")" ||
+	fail "could not create Go log in: $log_dir"
+
+prune_old_logs
+if [[ -n "${GOCACHE+x}" ]]; then
+	if go "${go_args[@]}" >"$log_file" 2>&1; then
+		status=0
+	else
+		status=$?
+	fi
+else
+	if GOCACHE="$cache_dir" go "${go_args[@]}" >"$log_file" 2>&1; then
+		status=0
+	else
+		status=$?
+	fi
+fi
+duration="$(($(date +%s) - started_at))"
+
+if ((status == 0)); then
+	printf 'PASS · %s s\n' "$duration"
+	if [[ "$keep_log" == true ]]; then
+		prune_old_logs
+	else
+		if rm -f -- "$log_file"; then
+			rmdir "$log_dir" 2>/dev/null || true
+			rmdir "$project_dir/.agent-logs" 2>/dev/null || true
+		else
+			printf 'Warning: could not remove Go log: %s\n' "$log_file" >&2
+		fi
+	fi
+	exit 0
+fi
+
+prune_old_logs
+printf 'FAIL · exit %d · %s s\n\n' "$status" "$duration"
+log_lines="$(awk 'END { print NR }' "$log_file")"
+log_bytes="$(wc -c <"$log_file" | tr -d ' ')"
+if ((log_lines <= 80 && log_bytes <= FAILURE_EXCERPT_BYTES)); then
+	command cat "$log_file"
+else
+	printf '[failure diagnostics selected from Go failure markers and the final summary; limited to 80 lines and %d bytes]\n' "$FAILURE_EXCERPT_BYTES"
+	print_bounded_context "$(extract_failure_context "$log_file")"
+fi
+printf '\nFull Go log:\n  %s\n\n' "$log_file"
+printf 'Re-run with --full for complete live output.\n'
+exit "$status"
