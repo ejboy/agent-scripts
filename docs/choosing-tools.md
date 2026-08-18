@@ -1,17 +1,17 @@
 # Choosing the right tool
 
-The tools in this repository solve different workflow problems. The build wrappers reduce agent-visible output, the browser helpers make Chrome workflows predictable, and `repo-map` provides machine-local discovery without embedding machine-specific paths in project instructions.
+The primary tools in this repository, `mvn-lite` and `npm-lite`, target the largest source of context window bloat by stripping output noise from routine builds and tests. Secondary utilities assist with browser automation, VS Code extension testing, and local repository discovery without embedding machine-specific paths in project instructions.
 
 ## Quick guide
 
-| Tool | Use it when | Use something else when |
-| --- | --- | --- |
-| `mvn-lite` | Running routine Maven builds, tests, packaging, installation, or verification | Running reporting or inspection goals, or when ordinary live Maven output is required; use `mvn-lite --full` |
-| `npm-lite` | Running exactly `npm run verify` or `npm run test:unit` | Running any other npm workflow; unsupported commands pass through unchanged |
-| `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
-| `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
-| `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |
-| `repo-map` | Resolving a known machine-local repository or discovering an unknown local repository or helper | The project already provides a correct, stable path or command directly |
+| Tier | Tool | Use it when | Use something else when |
+| --- | --- | --- | --- |
+| **Primary** | `mvn-lite` | Running routine Maven builds, tests, packaging, installation, or verification | Running reporting or inspection goals, or when ordinary live Maven output is required; use `mvn-lite --full` |
+| **Primary** | `npm-lite` | Running exactly `npm run verify` or `npm run test:unit` | Running any other npm workflow; unsupported commands pass through unchanged |
+| **Secondary** | `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
+| **Secondary** | `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
+| **Secondary** | `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |
+| **Secondary** | `repo-map` | Resolving a known machine-local repository or discovering an unknown local repository or helper | The project already provides a correct, stable path or command directly |
 
 ## Measured output savings
 

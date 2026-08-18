@@ -2,12 +2,17 @@
 
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.2.0)
 
-agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Some reduce noisy tool output and save agent context; others make common development tasks easier to automate. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
+agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Its primary tools, `mvn-lite` and `npm-lite`, reduce build and test output noise so agents retain more useful context. Supporting utilities cover browser automation, VS Code extension testing, and local repository discovery. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 
 ## Tools
 
-- `mvn-lite` — compact Maven output for builds and tests
-- `npm-lite` — compact output for selected npm test and verification workflows
+### Core Build & Test Wrappers
+
+- `mvn-lite` — compact Maven output for builds, tests, and verification runs
+- `npm-lite` — compact output for supported npm test and verification workflows (measured output reductions up to 99.99%)
+
+### Browser & Discovery Helpers
+
 - `html-screenshot` — render local HTML or URLs to PNG
 - `launch-browser` — launch Chrome with DevTools enabled
 - `vscode-test` — compact, approval-friendly VS Code extension testing
