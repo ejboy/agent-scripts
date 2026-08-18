@@ -59,6 +59,10 @@ case "${FAKE_NPM_MODE:-success}" in
 	ansi-tap)
 		printf '\033[32mpassing:\033[39m   \033[32m1108\033[39m\n'
 		;;
+	mixed-count)
+		printf 'Tests: 267 passed\n'
+		printf 'pass 2\n'
+		;;
 	*)
 		printf 'unknown fake mode\n' >&2
 		exit 9

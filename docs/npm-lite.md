@@ -1,23 +1,30 @@
 # npm-lite
 
-`npm-lite` reduces successful output for two selected npm workflows while
-keeping npm's behavior for every other invocation.
+`npm-lite` reduces successful output for two selected npm workflows and direct
+Node test runs. Direct non-test Node commands pass through to Node unchanged.
 
 ## Usage
 
-Only these exact commands use compact mode:
+These invocations use compact mode:
 
 ```bash
 npm-lite run verify
 npm-lite run test:unit
+npm-lite node --test path/to/test.js
+npm-lite node --test --test-name-pattern 'dashboard' path/to/test.js other.test.js
 ```
 
-Other commands and commands with additional arguments pass through unchanged:
+The `node --test` form supports multiple test paths and forwards Node test
+options. Node watch options pass through directly so watch output remains live.
+Other npm commands and commands with additional arguments pass through to npm
+unchanged:
 
 ```bash
 npm-lite install
 npm-lite run build
 npm-lite run test:unit -- --run
+npm-lite node --test --watch path/to/test.js
+npm-lite node script.js
 ```
 
 ## Output and logs
@@ -29,22 +36,22 @@ runner summary is present:
 PASS · 230 tests · 4 s
 ```
 
-The count parser recognizes common Mocha, Jest, Vitest, and TAP summary formats
-after removing ANSI color sequences.
+The count parser recognizes common Mocha, Jest, Vitest, and TAP summary formats,
+including Node's `pass N` test summary, after removing ANSI color sequences.
 
-Failures preserve npm's exit status and retain complete output under
-`.agent-logs/npm/`. Failures of at most 80 lines and 7,000 bytes are printed in
-full. For larger failures, `npm-lite` selects bounded context around the first
-and last error markers and includes the final runner summary. The retained log
-is authoritative.
+Failures preserve the underlying runner's exit status and retain complete
+output under `.agent-logs/npm/`. Failures of at most 80 lines and 7,000 bytes
+are printed in full. For larger failures, `npm-lite` selects bounded context
+around the first and last error markers and includes the final runner summary.
+The retained log is authoritative.
 
-Failed npm logs older than seven days are pruned on later compact runs. Move any
-log that must be retained longer. Projects adopting `npm-lite` should ignore
-`.agent-logs/`.
+Failed runner logs older than seven days are pruned on later compact runs. Move
+any log that must be retained longer. Projects adopting `npm-lite` should
+ignore `.agent-logs/`.
 
 ## Limitations
 
-- Compact mode trusts npm's exit status. A project script whose pipeline masks
+- Compact mode trusts the underlying runner's exit status. A project script whose pipeline masks
   a child failure can be reported as successful.
 - Successful output is discarded. Warnings, deprecations, or error-looking
   text emitted by a command that exits zero are not retained. Automatically

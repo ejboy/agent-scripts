@@ -7,6 +7,7 @@ test_root="$(mktemp -d "${TMPDIR:-/tmp}/npm-lite-test.XXXXXX")"
 fake_bin="$test_root/bin"
 project_dir="$test_root/project"
 calls_file="$test_root/npm-calls.txt"
+node_calls_file="$test_root/node-calls.txt"
 
 cleanup() {
 	rm -rf -- "$test_root"
@@ -21,13 +22,24 @@ trap cleanup EXIT
 mkdir -p "$fake_bin" "$project_dir"
 project_dir="$(cd -- "$project_dir" && pwd)"
 ln -s "$root/tests/fixtures/fake-npm" "$fake_bin/npm"
+ln -s "$root/tests/fixtures/fake-node" "$fake_bin/node"
 : >"$calls_file"
+: >"$node_calls_file"
 
 run_lite() {
 	(
 		cd "$project_dir" || exit 1
 		PATH="$fake_bin:$PATH" \
 		FAKE_NPM_CALLS="$calls_file" \
+		"$root/scripts/npm-lite" "$@"
+	)
+}
+
+run_node_lite() {
+	(
+		cd "$project_dir" || exit 1
+		PATH="$fake_bin:$PATH" \
+		FAKE_NODE_CALLS="$node_calls_file" \
 		"$root/scripts/npm-lite" "$@"
 	)
 }
@@ -41,6 +53,32 @@ output="$(FAKE_NPM_MODE=no-count run_lite run test:unit)"
 
 output="$(FAKE_NPM_MODE=ansi-tap run_lite run test:unit)"
 [[ "$output" == "PASS · 1108 tests · "*" s" ]] || fail_test "ANSI-colored TAP count was not extracted"
+
+output="$(FAKE_NPM_MODE=mixed-count run_lite run verify)"
+[[ "$output" == "PASS · 267 tests · "*" s" ]] || fail_test "Node count syntax changed an npm test count"
+
+output="$(FAKE_NODE_MODE=success run_node_lite node --test --test-name-pattern 'dashboard' internal/dashboard/static/dashboard.test.js other.test.js)"
+[[ "$output" == "PASS · 2 tests · "*" s" ]] || fail_test "direct Node test success was not compact"
+[[ ! -d "$project_dir/.agent-logs" ]] || fail_test "successful direct Node log directory was retained"
+
+set +e
+output="$(FAKE_NODE_MODE=failure run_node_lite node --test internal/dashboard/static/dashboard.test.js 2>&1)"
+status=$?
+set -e
+[[ "$status" -eq 13 ]] || fail_test "direct Node failure exit status was not preserved"
+[[ "$output" == *"FAIL · exit 13"* ]] || fail_test "direct Node failure summary missing"
+[[ "$output" == *"AssertionError: expected true but got false"* ]] || fail_test "direct Node failure detail missing"
+node_log_file="$(sed -n 's/^Log: //p' <<<"$output")"
+[[ -f "$node_log_file" ]] || fail_test "direct Node failure log was not retained"
+
+output="$(FAKE_NODE_MODE=watch run_node_lite node --test --watch dashboard.test.js)"
+[[ "$output" == 'live node watch output' ]] || fail_test "Node watch mode was captured instead of passed through"
+
+output="$(NODE_OPTIONS=--watch FAKE_NODE_MODE=watch run_node_lite node --test dashboard.test.js)"
+[[ "$output" == 'live node watch output' ]] || fail_test "NODE_OPTIONS watch mode was captured instead of passed through"
+
+output="$(FAKE_NODE_MODE=direct run_node_lite node script.js)"
+[[ "$output" == 'direct node output' ]] || fail_test "non-test Node invocation was routed to npm"
 
 output="$(FAKE_NPM_MODE=success run_lite install left-pad)"
 [[ "$output" == $'setup output\n267 passing (4s)' ]] || fail_test "unsupported command did not pass through"
@@ -210,7 +248,7 @@ fi
 find "$project_dir/.agent-logs/npm" -type f -name 'npm-lite.*' -print -quit | grep -q . ||
 	fail_test "interrupted run did not retain its raw log"
 
-python3 - "$calls_file" "$control_value" <<'PY' || fail_test "npm argument boundaries were not preserved"
+python3 - "$calls_file" "$control_value" "$node_calls_file" <<'PY' || fail_test "npm argument boundaries were not preserved"
 import sys
 
 fields = open(sys.argv[1], "rb").read().split(b"\0")
@@ -223,6 +261,7 @@ assert calls == [
 	["run", "verify"],
 	["run", "test:unit"],
 	["run", "test:unit"],
+	["run", "verify"],
 	["install", "left-pad"],
 	["run", "verify", "--", "--watch"],
 	["--loglevel", sys.argv[2]],
@@ -232,6 +271,26 @@ assert calls == [
 	["run", "verify"],
 	["run", "verify"],
 	["run", "verify"],
+]
+
+fields = open(sys.argv[3], "rb").read().split(b"\0")
+assert fields.pop() == b""
+node_calls = []
+while fields:
+	count = int(fields.pop(0))
+	node_calls.append([fields.pop(0).decode() for _ in range(count)])
+assert node_calls == [
+	[
+		"--test",
+		"--test-name-pattern",
+		"dashboard",
+		"internal/dashboard/static/dashboard.test.js",
+		"other.test.js",
+	],
+	["--test", "internal/dashboard/static/dashboard.test.js"],
+	["--test", "--watch", "dashboard.test.js"],
+	["--test", "dashboard.test.js"],
+	["script.js"],
 ]
 PY
 

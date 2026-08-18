@@ -7,7 +7,7 @@ The primary tools in this repository, `mvn-lite` and `npm-lite`, target the larg
 | Tier | Tool | Use it when | Use something else when |
 | --- | --- | --- | --- |
 | **Primary** | `mvn-lite` | Running routine Maven builds, tests, packaging, installation, or verification | Running reporting or inspection goals, or when ordinary live Maven output is required; use `mvn-lite --full` |
-| **Primary** | `npm-lite` | Running exactly `npm run verify` or `npm run test:unit` | Running any other npm workflow; unsupported commands pass through unchanged |
+| **Primary** | `npm-lite` | Running `npm run verify`, `npm run test:unit`, or direct `node --test` | Running any other npm or Node workflow; unsupported commands pass through unchanged |
 | **Secondary** | `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
 | **Secondary** | `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
 | **Secondary** | `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |

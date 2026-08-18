@@ -52,12 +52,13 @@ failure logs, scope, and real-project evidence.
 
 ## npm-lite
 
-`npm-lite` reduces successful output for the two supported npm workflows while
-keeping npm's behavior for every other invocation.
+`npm-lite` reduces successful output for the two supported npm workflows and
+direct Node test runs while keeping other invocations unchanged.
 
 ```bash
 npm-lite run verify
 npm-lite run test:unit
+npm-lite node --test path/to/test.js
 ```
 
 See the [`npm-lite` guide](docs/npm-lite.md) for supported commands, count

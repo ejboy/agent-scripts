@@ -173,7 +173,7 @@ initialize_builtin() {
 			'Launch Chrome with DevTools enabled'
 			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
-			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
+			'Compact output for npm run verify, npm run test:unit, and node --test; other invocations pass through'
 			"${command_descriptions[@]}"
 		)
 	else
@@ -183,7 +183,7 @@ initialize_builtin() {
 			'Launch Chrome with DevTools enabled'
 			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
-			'Compact output for npm run verify and npm run test:unit; other invocations pass through'
+			'Compact output for npm run verify, npm run test:unit, and node --test; other invocations pass through'
 		)
 	fi
 	for command_name in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite; do

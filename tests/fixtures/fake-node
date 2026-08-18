@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+set -uo pipefail
+
+printf '%s\0' "$#" "$@" >> "${FAKE_NODE_CALLS:?}"
+
+case "${FAKE_NODE_MODE:-success}" in
+	success)
+		printf '▶ dashboard tests\n'
+		printf 'ℹ tests 2\n'
+		printf 'ℹ pass 2\n'
+		printf 'ℹ fail 0\n'
+		;;
+	failure)
+		printf '✖ dashboard renders the error state\n'
+		printf 'AssertionError: expected true but got false\n' >&2
+		exit 13
+		;;
+	watch)
+		printf 'live node watch output\n'
+		;;
+	direct)
+		printf 'direct node output\n'
+		;;
+	*)
+		printf 'unknown fake mode\n' >&2
+		exit 9
+		;;
+esac

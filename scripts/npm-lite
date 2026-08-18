@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 # npm-lite 0.2.0
-# Compact npm output for selected test and verification workflows.
+# Compact npm and direct Node test output for selected test workflows.
 # https://github.com/ejboy/agent-scripts
 
 set -uo pipefail
@@ -53,7 +53,8 @@ forward_signal() {
 }
 
 extract_test_count() {
-	awk '
+	local source_file="$1" count_mode="${2:-npm}"
+	awk -v count_mode="$count_mode" '
 		{
 			line = $0
 			gsub(sprintf("%c", 27) "\\[[0-9;?]*[ -/]*[@-~]", "", line)
@@ -80,12 +81,18 @@ extract_test_count() {
 			sub(/^passing:[[:space:]]+/, "", value)
 			count = value
 		}
+		count_mode == "node-test" && line ~ /(^|[[:space:]])pass[[:space:]]+[0-9]+([[:space:]]|$)/ {
+			match(line, /pass[[:space:]]+[0-9]+/)
+			value = substr(line, RSTART, RLENGTH)
+			sub(/^pass[[:space:]]+/, "", value)
+			count = value
+		}
 		END {
 			if (count != "") {
 				print count
 			}
 		}
-	' "$1"
+	' "$source_file"
 }
 
 extract_failure_context() {
@@ -196,8 +203,32 @@ print_bounded_context() {
 	printf '\n'
 }
 
+node_options_enable_watch() {
+	local node_options="${NODE_OPTIONS:-}"
+	[[ "$node_options" =~ (^|[[:space:]])--watch([[:space:]]|=|$) ]] ||
+		[[ "$node_options" =~ (^|[[:space:]])--watch-path([[:space:]]|=|$) ]]
+}
+
 mode="passthrough"
-if (($# == 2)) && [[ "$1" == "run" ]]; then
+node_args=()
+if (($# >= 1)) && [[ "$1" == "node" ]]; then
+	node_args=("${@:2}")
+	mode="node-passthrough"
+	if (($# >= 2)) && [[ "$2" == "--test" ]]; then
+		mode="node-test"
+		for node_arg in "${node_args[@]}"; do
+			case "$node_arg" in
+				--watch|--watch-path|--watch-path=*)
+					mode="node-passthrough"
+					break
+					;;
+				esac
+		done
+		if node_options_enable_watch; then
+			mode="node-passthrough"
+		fi
+	fi
+elif (($# == 2)) && [[ "$1" == "run" ]]; then
 	case "$2" in
 		verify|test:unit)
 			mode="compact"
@@ -205,6 +236,9 @@ if (($# == 2)) && [[ "$1" == "run" ]]; then
 	esac
 fi
 
+if [[ "$mode" == "node-passthrough" ]]; then
+	exec node "${node_args[@]}"
+fi
 if [[ "$mode" == "passthrough" ]]; then
 	exec npm "$@"
 fi
@@ -229,7 +263,11 @@ fi
 umask "$original_umask"
 trap 'forward_signal INT 130' INT
 trap 'forward_signal TERM 143' TERM
-npm "$@" > "$log_file" 2>&1 &
+if [[ "$mode" == "node-test" ]]; then
+	command node "${node_args[@]}" > "$log_file" 2>&1 &
+else
+	npm "$@" > "$log_file" 2>&1 &
+fi
 child_pid=$!
 wait "$child_pid"
 status=$?
@@ -239,7 +277,7 @@ duration="$(($(date +%s) - started_at))"
 prune_old_logs
 
 if ((status == 0)); then
-	test_count="$(extract_test_count "$log_file")"
+	test_count="$(extract_test_count "$log_file" "$mode")"
 	if [[ -n "$test_count" ]]; then
 		printf 'PASS · %s tests · %s s\n' "$test_count" "$duration" > "$visible_file"
 	else
