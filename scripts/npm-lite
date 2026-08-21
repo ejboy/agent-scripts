@@ -27,8 +27,8 @@ warn() {
 }
 
 prune_old_logs() {
-	find "$log_dir" -type f -name 'npm-lite.*' -mmin "+$LOG_RETENTION_MINUTES" \
-		-exec rm -f -- {} + 2>/dev/null || true
+	find -P "$log_dir" -maxdepth 1 -type f -name 'npm-lite.*' \
+		-mmin "+$LOG_RETENTION_MINUTES" -delete 2>/dev/null || true
 }
 
 terminate_process_tree() {

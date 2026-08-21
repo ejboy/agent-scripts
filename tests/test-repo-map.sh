@@ -78,6 +78,8 @@ done
 (cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repo-map" add)
 registry="$test_root/home/.agent-scripts/repo-map"
 [[ -f "$registry" ]] || fail_test 'registry was not created under HOME'
+registry_file_mode="$(stat -f %Lp "$registry" 2>/dev/null || stat -c %a "$registry")"
+[[ "$registry_file_mode" == 600 ]] || fail_test "registry file mode was $registry_file_mode, expected 600"
 [[ "$(git -C "$repo_one" status --porcelain)" == "$before_status" ]] || fail_test 'add modified the Git repository'
 grep -Fxq "repo|first-repository|$(cd -- "$repo_one" && pwd -P)||" "$registry" || fail_test 'current repository was not added'
 

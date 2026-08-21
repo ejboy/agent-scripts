@@ -57,6 +57,7 @@ grep -Fxq -- '--force-device-scale-factor=2' "$calls" || fail_test 'scale was no
 grep -Fxq -- '--no-sandbox' "$calls" || fail_test 'no-sandbox was not passed to Chrome'
 expected_url="file://$(cd -- "$(dirname -- "$html")" && pwd)/$(basename -- "$html")"
 grep -Fxq "$expected_url" "$calls" || fail_test 'local HTML was not selected as a file URL'
+grep -Fxq -- '--allow-file-access-from-files' "$calls" || fail_test 'local HTML did not allow Chrome file access'
 verbose_output="$(run_renderer --verbose --output "$test_root/verbose.png" "$html" 2>&1)"
 [[ "$verbose_output" == *'fake non-actionable Chrome diagnostic'* && "$verbose_output" == *'Screenshot:'* ]] || fail_test 'verbose mode omitted Chrome diagnostics or success output'
 rm -f -- "$expected_output"
@@ -71,10 +72,12 @@ output="$(run_renderer --output "$output_file" https://example.test/page)"
 normalized_output_file="$(cd -- "$(dirname -- "$output_file")" && pwd)/$(basename -- "$output_file")"
 [[ "$output" == "Screenshot: $normalized_output_file" ]] || fail_test 'URL output path was unexpected'
 grep -Fxq 'https://example.test/page' "$calls" || fail_test 'HTTP URL was not passed to Chrome'
+grep -Fxq -- '--allow-file-access-from-files' "$calls" && fail_test 'HTTP URL granted Chrome local file access'
 
 file_url="file://$(cd -- "$(dirname -- "$html")" && pwd)/$(basename -- "$html")"
 run_renderer --output "$output_file" "$file_url" >/dev/null
 grep -Fxq "$file_url" "$calls" || fail_test 'file URL was not passed to Chrome'
+grep -Fxq -- '--allow-file-access-from-files' "$calls" || fail_test 'file URL did not allow Chrome file access'
 
 for args in '--width 0' '--height abc' '--wait -1' '--scale 0'; do
 	set +e

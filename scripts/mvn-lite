@@ -304,8 +304,8 @@ forward_signal() {
 }
 
 prune_old_logs() {
-	find "$log_dir" -type f -name 'maven-*.log.*' -mmin "+$LOG_RETENTION_MINUTES" \
-		-exec rm -f -- {} + 2>/dev/null || true
+	find -P "$log_dir" -maxdepth 1 -type f -name 'maven-*.log.*' \
+		-mmin "+$LOG_RETENTION_MINUTES" -delete 2>/dev/null || true
 }
 
 if [[ "$passthrough" == true ]]; then

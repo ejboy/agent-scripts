@@ -166,13 +166,13 @@ args=(
 	--headless=new
 	--disable-gpu
 	--hide-scrollbars
-	--allow-file-access-from-files
 	--run-all-compositor-stages-before-draw
 	--virtual-time-budget="$wait_ms"
 	--force-device-scale-factor="$scale"
 	--window-size="$width,$height"
 	--screenshot="$output"
 )
+[[ "$url" != file://* ]] || args+=(--allow-file-access-from-files)
 [[ "$no_sandbox" != true ]] || args+=(--no-sandbox)
 
 if ! "$chrome" "${args[@]}" "$url" 2>"$stderr_file"; then
