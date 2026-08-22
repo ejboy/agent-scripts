@@ -53,11 +53,15 @@ current project.
 ### Layout
 
 ```text
-.agents/skills/repo-map/SKILL.md
-.agents/skills/lite-tools/SKILL.md
+skills/README.md
+skills/repo-map/SKILL.md
+skills/lite-tools/SKILL.md
 ```
 
-Each Skill directory should contain only `SKILL.md`.
+`skills/` is the published Skill source of truth. `skills/README.md` is the
+short human-facing overview; each Skill directory contains only `SKILL.md`.
+These are distributable Skills for use in other projects, not project-local
+`.agents` instructions for this repository.
 
 ### Common Skill behavior
 
@@ -96,6 +100,8 @@ Each Skill directory should contain only `SKILL.md`.
 ### Validation
 
 - [ ] Validate Skill frontmatter and directory names.
+- [ ] Keep discovery validation focused on the Skills CLI reading the
+  repository's published `skills/` source, not project-local agent behavior.
 - [ ] Confirm repository discovery:
 
   ```bash
@@ -224,7 +230,8 @@ repository.
   - `scripts/mvn-lite`
   - `scripts/npm-lite`
   - `scripts/go-lite`
-  - `.agents/skills`
+  - `skills/repo-map/SKILL.md`
+  - `skills/lite-tools/SKILL.md`
 - [ ] Run `bash -n` on the four core scripts before completing installation.
 - [ ] Ensure the four core scripts are executable.
 - [ ] Create or refresh the four core symlinks in `~/.local/bin`.
@@ -280,7 +287,7 @@ startup file, removal of that PATH line remains a manual step.
 - [ ] The full repository is available under `~/.local/share/agent-scripts`.
 - [ ] Git installation is used when Git is available.
 - [ ] Archive fallback works when Git is unavailable.
-- [ ] `.agents/skills` is present in both modes.
+- [ ] `skills/repo-map/SKILL.md` and `skills/lite-tools/SKILL.md` are present in both modes.
 - [ ] Exactly the four current core commands are symlinked into `~/.local/bin`.
 - [ ] All four help commands work after installation.
 - [ ] The installer never edits shell configuration.
@@ -296,7 +303,7 @@ download/clone sources so tests do not touch the developer's real installation.
 - [ ] With Git available, installer creates a repository checkout under
   `~/.local/share/agent-scripts`.
 - [ ] The checkout contains `.git`.
-- [ ] The expected repository content and `.agents/skills` are present.
+- [ ] The expected repository content and `skills/` are present.
 - [ ] Four core symlinks are created in `~/.local/bin`.
 - [ ] All four help commands succeed.
 
@@ -306,7 +313,7 @@ download/clone sources so tests do not touch the developer's real installation.
   installation.
 - [ ] The resulting directory is still
   `~/.local/share/agent-scripts`.
-- [ ] The expected repository content and `.agents/skills` are present.
+- [ ] The expected repository content and `skills/` are present.
 - [ ] No `.git` directory is expected.
 - [ ] Four core symlinks are created in `~/.local/bin`.
 - [ ] All four help commands succeed.
@@ -413,8 +420,8 @@ Explain briefly:
 - [ ] Show the conventional Skills installation command.
 - [ ] Explain that Skills and command installation are separate.
 - [ ] Explain that Node.js/npm is needed only for `npx skills`.
-- [ ] Explain that the repository installation contains the Skill definitions
-  locally, but the command installer does not invoke the Skills CLI.
+- [ ] Explain that the repository publishes Skill definitions under `skills/`,
+  while the command installer does not invoke the Skills CLI.
 
 ### Release validation
 

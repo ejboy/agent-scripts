@@ -14,7 +14,8 @@ validate_repository() {
 	local repository="$1"
 	local command
 
-	[[ -d "$repository/.agents/skills" ]] || fail "installation is missing .agents/skills"
+	[[ -f "$repository/skills/repo-map/SKILL.md" ]] || fail "installation is missing skills/repo-map/SKILL.md"
+	[[ -f "$repository/skills/lite-tools/SKILL.md" ]] || fail "installation is missing skills/lite-tools/SKILL.md"
 	for command in "${core_commands[@]}"; do
 		[[ -f "$repository/scripts/$command" ]] || fail "installation is missing scripts/$command"
 		bash -n "$repository/scripts/$command" || fail "scripts/$command contains invalid Bash syntax"
@@ -24,6 +25,7 @@ validate_repository() {
 install_archive() {
 	local staging_root archive_file staged_repository previous_repository
 
+	command -v tar >/dev/null 2>&1 || fail 'tar is required for archive installation'
 	staging_root="$(mktemp -d "$share_dir/.agent-scripts-install.XXXXXX")"
 	archive_file="$staging_root/repository.tar.gz"
 	staged_repository="$staging_root/repository"
@@ -51,7 +53,6 @@ esac
 [[ "$HOME" == /* && "$HOME" != / ]] || fail 'HOME must be an absolute, usable directory'
 command -v bash >/dev/null 2>&1 || fail 'Bash is required'
 command -v curl >/dev/null 2>&1 || fail 'curl is required'
-command -v tar >/dev/null 2>&1 || fail 'tar is required for archive installation'
 
 readonly share_dir="$HOME/.local/share"
 readonly install_dir="$share_dir/agent-scripts"

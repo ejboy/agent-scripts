@@ -1,6 +1,7 @@
 # agent-scripts
 
 [![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.2.0)
+[![skills.sh](https://skills.sh/b/ejboy/agent-scripts)](https://skills.sh/ejboy/agent-scripts)
 
 agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Its primary tools, `mvn-lite`, `npm-lite`, and `go-lite`, reduce build and test output noise so agents retain more useful context. Supporting utilities cover browser automation, VS Code extension testing, and local repository discovery. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 
@@ -31,7 +32,25 @@ separately under `maintainers/` and is not part of the public utility interface.
 
 ## Installation
 
-Clone the repository and add its `scripts/` directory to `PATH`:
+The simplest installer keeps the complete repository under
+`~/.local/share/agent-scripts` and symlinks the four core commands into
+`~/.local/bin`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ejboy/agent-scripts/main/install.sh | bash
+```
+
+The installer uses Git when available and otherwise downloads a complete
+archive snapshot. It does not edit shell startup files. Adding the repository's
+full `scripts/` directory to `PATH` remains the recommended setup for access to
+all current and future scripts:
+
+```bash
+export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
+```
+
+For a manual Git installation, clone the repository and add its `scripts/`
+directory to `PATH`:
 
 ```bash
 mkdir -p "$HOME/.local/share"
@@ -41,7 +60,18 @@ export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 
 Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke the tools under `scripts/` by name from any project.
 
-See the [installation guide](docs/installation.md) for shell setup, updates, and optional project-local pinning.
+Skills and command installation are separate. To install the two conventional
+Skills from this repository, use the Skills CLI:
+
+```bash
+npx skills add https://github.com/ejboy/agent-scripts --global --skill repo-map --skill lite-tools
+```
+
+Node.js/npm is needed only for `npx skills`; the repository installer does not
+invoke the Skills CLI. The published Skill definitions are maintained under
+[`skills/`](skills/), separately from command installation.
+
+See the [installation guide](docs/installation.md) for shell setup, updates, uninstalling, and optional project-local pinning.
 
 ## mvn-lite
 

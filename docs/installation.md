@@ -1,6 +1,42 @@
 # Installation
 
-## Recommended: add the tools to PATH
+## Recommended: simple installer
+
+Run the installer with Bash:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ejboy/agent-scripts/main/install.sh | bash
+```
+
+When Git is available, the installer creates a checkout at
+`~/.local/share/agent-scripts`. Without Git, it downloads a complete archive
+snapshot to the same location. In both cases it validates the four core
+scripts, creates these symlinks in `~/.local/bin`, and leaves shell startup
+files unchanged:
+
+- `repo-map`
+- `mvn-lite`
+- `npm-lite`
+- `go-lite`
+
+If `~/.local/bin` is not already on `PATH`, the symlinks still exist but are not
+immediately available by name. For all current and future Agent Scripts, add
+the full repository scripts directory to `PATH`:
+
+```bash
+export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
+```
+
+Add that line to your shell startup file if you want the complete collection in
+future sessions. A Git installation can be updated with:
+
+```bash
+git -C "$HOME/.local/share/agent-scripts" pull --ff-only
+```
+
+An archive installation is updated by rerunning the installer.
+
+## Manual Git installation
 
 Clone the repository and add its `scripts/` directory to `PATH`:
 
@@ -10,12 +46,12 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `html-screenshot`, `launch-browser`, `vscode-test`, and `repo-map` by name from any project.
+Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `go-lite`, `html-screenshot`, `launch-browser`, `vscode-test`, and `repo-map` by name from any project.
 
-Verify that the shell can find all six commands:
+Verify that the shell can find all seven commands:
 
 ```bash
-command -v mvn-lite npm-lite html-screenshot launch-browser vscode-test repo-map
+command -v mvn-lite npm-lite go-lite html-screenshot launch-browser vscode-test repo-map
 ```
 
 ### Codex sandbox access for browser and VS Code tools
@@ -57,6 +93,34 @@ Update the installed tools from the cloned repository:
 ```bash
 git -C ~/.local/share/agent-scripts pull --ff-only
 ```
+
+## Skills
+
+Skills and command installation are separate. The repository includes the
+published `repo-map` and `lite-tools` Skill definitions under [`skills/`](../skills/).
+Install them with the Skills CLI when desired:
+
+```bash
+npx skills add https://github.com/ejboy/agent-scripts --global --skill repo-map --skill lite-tools
+```
+
+Node.js/npm is needed only for `npx skills`. The repository installer does not
+invoke `npx` or install Skills automatically.
+
+## Uninstall
+
+Remove the promoted command symlinks and repository:
+
+```bash
+rm -f "$HOME/.local/bin/repo-map" \
+  "$HOME/.local/bin/mvn-lite" \
+  "$HOME/.local/bin/npm-lite" \
+  "$HOME/.local/bin/go-lite"
+rm -rf "$HOME/.local/share/agent-scripts"
+```
+
+If you added the full `scripts/` directory to a shell startup file, remove that
+PATH line manually.
 
 ## Optional: pin mvn-lite in a project
 

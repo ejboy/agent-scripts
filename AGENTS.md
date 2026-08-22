@@ -5,6 +5,7 @@ Guidance for coding agents working in this repository.
 ## Commits
 
 - Do not commit, amend, or push without explicit user approval.
+- Include the related GitHub issue number in commit messages when one is known.
 
 ## Validation
 
