@@ -26,6 +26,9 @@ ln -s "$root/tests/fixtures/fake-node" "$fake_bin/node"
 : >"$calls_file"
 : >"$node_calls_file"
 
+help_output="$("$root/scripts/npm-lite" --help-npm-lite)"
+[[ "$help_output" == *'npm-lite '* && "$help_output" == *'--help-npm-lite'* ]] || fail_test "npm wrapper help was incomplete"
+
 run_lite() {
 	(
 		cd "$project_dir" || exit 1

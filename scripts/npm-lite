@@ -22,9 +22,25 @@ fail() {
 	exit 2
 }
 
+print_npm_lite_help() {
+	printf 'npm-lite %s\n' "$AGENT_SCRIPTS_VERSION"
+	printf 'Compact npm and direct Node test output for coding agents\n\n'
+	printf 'Usage:\n'
+	printf '  npm-lite [wrapper option] [npm or Node arguments]\n\n'
+	printf 'Wrapper option:\n'
+	printf '  --help-npm-lite     Show this help\n\n'
+	printf 'Compact mode supports npm run verify, npm run test:unit, and node --test.\n'
+	printf 'Other invocations pass through to npm or node unchanged.\n'
+}
+
 warn() {
 	printf 'Warning: %s\n' "$1" >&2
 }
+
+if (($# == 1)) && [[ "$1" == "--help-npm-lite" ]]; then
+	print_npm_lite_help
+	exit 0
+fi
 
 prune_old_logs() {
 	find -P "$log_dir" -maxdepth 1 -type f -name 'npm-lite.*' \

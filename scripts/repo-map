@@ -160,11 +160,11 @@ initialize_builtin() {
 		repo_notes=('')
 	fi
 	if ((${#command_names[@]} > 0)); then
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite' "${command_names[@]}")
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "${command_repos[@]}")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite' 'go-lite' "${command_names[@]}")
 	else
-		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
-		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite')
+		command_repos=("$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME" "$BUILTIN_REPOSITORY_NAME")
+		command_names=('mvn-lite' 'html-screenshot' 'launch-browser' 'vscode-test' 'repo-map' 'npm-lite' 'go-lite')
 	fi
 	if ((${#command_descriptions[@]} > 0)); then
 		command_descriptions=(
@@ -174,6 +174,7 @@ initialize_builtin() {
 			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
 			'Compact output for npm run verify, npm run test:unit, and node --test; other invocations pass through'
+			'Compact Go test output; other Go commands pass through'
 			"${command_descriptions[@]}"
 		)
 	else
@@ -184,9 +185,10 @@ initialize_builtin() {
 			'Compact, approval-friendly VS Code extension testing'
 			'Local repository and agent-capability discovery'
 			'Compact output for npm run verify, npm run test:unit, and node --test; other invocations pass through'
+			'Compact Go test output; other Go commands pass through'
 		)
 	fi
-	for command_name in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite; do
+	for command_name in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite go-lite; do
 		if [[ ! -x "$SCRIPT_DIR/$command_name" ]]; then
 			for index in "${!command_names[@]}"; do
 				if [[ "${command_names[index]}" == "$command_name" && "${command_repos[index]}" == "$BUILTIN_REPOSITORY_NAME" ]]; then

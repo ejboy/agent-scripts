@@ -54,7 +54,7 @@ ln -s "$root/scripts/repo-map" "$symlink_path"
 [[ "$(HOME="$test_root/home" "$symlink_path" get agent-scripts)" == "$expected_root" ]] || fail_test 'symlinked repo-map resolved the wrong built-in path'
 output="$(run_map show agent-scripts)"
 [[ "$output" == *'Description: Local utilities for AI-assisted development'* ]] || fail_test 'built-in description was missing'
-for builtin_command in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite; do
+for builtin_command in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite go-lite; do
 	[[ "$output" == *"$builtin_command"* ]] || fail_test "built-in command was missing: $builtin_command"
 done
 output="$(run_map commands)"
@@ -65,6 +65,7 @@ output="$(PATH="$root/scripts:$PATH" run_map command vscode-test)"
 [[ "$output" == *'Command: vscode-test'* && "$output" == *'Repository: agent-scripts'* && "$output" == *'Status: available'* && "$output" == *"Path: $root/scripts/vscode-test"* && "$output" == *'Description: Compact, approval-friendly VS Code extension testing'* ]] || fail_test 'targeted command lookup did not show vscode-test'
 output="$(PATH="$root/scripts:$PATH" run_map commands --check)"
 [[ "$output" == *'COMMAND'* && "$output" == *'available'* && "$output" == *"$root/scripts/mvn-lite"* ]] || fail_test 'commands --check did not resolve built-in commands'
+[[ "$output" == *"go-lite"* && "$output" == *"$root/scripts/go-lite"* ]] || fail_test 'commands --check did not resolve go-lite'
 
 fake_bin="$test_root/fake-bin"
 mkdir -p "$fake_bin"
