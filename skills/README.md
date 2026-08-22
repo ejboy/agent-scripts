@@ -13,3 +13,6 @@ npx skills add https://github.com/ejboy/agent-scripts --global --skill repo-map 
 
 Skills are separate from the distributable command-line tools. See the [main
 repository README](../README.md) for command installation and PATH setup.
+
+Node.js/npm is needed only for `npx skills`. The repository installer installs
+commands only and does not invoke the Skills CLI.

@@ -51,12 +51,12 @@ ignore `.agent-logs/`.
 
 ## Limitations
 
+> [!IMPORTANT]
+> Successful output is discarded. Warnings, deprecations, or error-looking
+> text emitted by a command that exits zero are not retained.
+
 - Compact mode trusts the underlying runner's exit status. A project script whose pipeline masks
   a child failure can be reported as successful.
-- Successful output is discarded. Warnings, deprecations, or error-looking
-  text emitted by a command that exits zero are not retained. Automatically
-  classifying such text is intentionally deferred because tests often print
-  expected warnings and errors.
 - A short wrapped failure can be slightly larger than direct npm output because
   the wrapper adds its status and retained-log path. Failure output is bounded;
   it is not guaranteed to be smaller in every case.

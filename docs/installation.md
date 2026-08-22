@@ -58,7 +58,12 @@ command -v mvn-lite npm-lite go-lite html-screenshot launch-browser vscode-test 
 
 `vscode-test` and `launch-browser` inspect macOS processes and connect to local DevTools endpoints. `html-screenshot` launches Chrome. When Codex runs these tools inside a restricted sandbox, those operations may be denied even though the underlying application is healthy.
 
-Do not allow the entire command prefixes without approval. `vscode-test launch` accepts an alternate executable through `--code` and runs extension-under-test code. `html-screenshot` accepts an alternate Chrome executable. Use subcommand-specific rules for `vscode-test`, and require approval for commands that launch code, capture the screen, or terminate processes:
+> [!WARNING]
+> These tools can launch code, capture the screen, or terminate processes. Use
+> narrow command-specific approval rules rather than allowing entire command
+> prefixes.
+
+`vscode-test launch` accepts an alternate executable through `--code` and runs extension-under-test code. `html-screenshot` accepts an alternate Chrome executable. Use subcommand-specific rules for `vscode-test`, and require approval for commands that launch code, capture the screen, or terminate processes:
 
 ```python
 prefix_rule(

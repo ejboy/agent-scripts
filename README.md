@@ -60,16 +60,11 @@ export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 
 Add the `export` line to your shell startup file to make the tools available in future sessions. You can then invoke the tools under `scripts/` by name from any project.
 
-Skills and command installation are separate. To install the two conventional
-Skills from this repository, use the Skills CLI:
-
-```bash
-npx skills add https://github.com/ejboy/agent-scripts --global --skill repo-map --skill lite-tools
-```
-
-Node.js/npm is needed only for `npx skills`; the repository installer does not
-invoke the Skills CLI. The published Skill definitions are maintained under
-[`skills/`](skills/), separately from command installation.
+> [!NOTE]
+> Skills and command installation are separate. See
+> [`skills/README.md`](skills/README.md) for installing this repository's
+> `repo-map` and `lite-tools` skills. The repository installer installs
+> commands only and does not invoke the Skills CLI.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, uninstalling, and optional project-local pinning.
 
