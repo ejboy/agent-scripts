@@ -12,7 +12,7 @@ with minimal changes.
 The issue has four primary outcomes:
 
 1. Make the four current core tools consistent and easy to use.
-2. Publish conventional Agent Skills for those four tools.
+2. Publish two conventional Agent Skills for those workflows.
 3. Add a simple one-command installer that preserves the existing repository-based
    installation model.
 4. Make Skills support visible in the README, including the Skills badge.
@@ -48,15 +48,13 @@ current project.
 - [ ] `repo-map commands` reports all four core tools.
 - [ ] All four commands expose toolchain-independent help.
 
-## Phase 2: Add four conventional Agent Skills
+## Phase 2: Add two conventional Agent Skills
 
 ### Layout
 
 ```text
 .agents/skills/repo-map/SKILL.md
-.agents/skills/mvn-lite/SKILL.md
-.agents/skills/npm-lite/SKILL.md
-.agents/skills/go-lite/SKILL.md
+.agents/skills/lite-tools/SKILL.md
 ```
 
 Each Skill directory should contain only `SKILL.md`.
@@ -83,23 +81,17 @@ Each Skill directory should contain only `SKILL.md`.
 - [ ] If unavailable, use the current workspace or ask the user for the
   repository location instead of starting a broad filesystem search.
 
-#### `mvn-lite`
+#### `lite-tools`
 
+- [ ] Describe compact Maven, npm/Node test, and Go test workflows as one
+  token- and context-efficient capability.
 - [ ] Prefer `mvn-lite` for supported Maven build/test workflows.
+- [ ] Prefer `npm-lite` only for its supported npm/Node test workflows.
+- [ ] Prefer `go-lite` only for `go test`.
+- [ ] Fall back to normal project commands when wrappers are unavailable or
+  workflows are unsupported.
 - [ ] Fall back to `./mvnw` when present, otherwise `mvn`.
-- [ ] Mention `--full` only as a diagnostic fallback.
-
-#### `npm-lite`
-
-- [ ] Prefer `npm-lite` only for its currently supported workflows.
-- [ ] Use normal npm/Node commands for unsupported workflows.
-- [ ] Do not imply that arbitrary npm commands receive compact output.
-
-#### `go-lite`
-
-- [ ] Prefer `go-lite` for `go test`.
-- [ ] Fall back to `go test`.
-- [ ] Do not describe it as a compact Go build wrapper.
+- [ ] Mention `--full` only as a diagnostic fallback for Maven.
 
 ### Validation
 
@@ -110,7 +102,7 @@ Each Skill directory should contain only `SKILL.md`.
   npx skills add . --list
   ```
 
-- [ ] Confirm all four expected Skill names are listed.
+- [ ] Confirm exactly `repo-map` and `lite-tools` are listed.
 - [ ] Perform one isolated noninteractive install from the local checkout, for
   example with a temporary `HOME`:
 
@@ -118,13 +110,14 @@ Each Skill directory should contain only `SKILL.md`.
   npx skills add . --global --agent codex --yes
   ```
 
-- [ ] Statically confirm each Skill contains the required fallback behavior.
+- [ ] Statically confirm `repo-map` contains its repository-location fallback
+  and `lite-tools` contains Maven, npm/Node, and Go fallbacks.
 
 Do not add a dedicated agent-evaluation harness for this issue.
 
 ### Exit criteria
 
-- [ ] Four valid Skills are discoverable through the normal Skills convention.
+- [ ] Two valid Skills are discoverable through the normal Skills convention.
 - [ ] Trigger descriptions are narrow enough to avoid obvious over-activation.
 - [ ] Each Skill documents a normal-tool fallback.
 - [ ] Skills do not install binaries or invoke the command installer.
@@ -434,7 +427,8 @@ Before completing issue #3:
 - [ ] Test archive fallback on clean Linux.
 - [ ] Test installation on clean macOS.
 - [ ] Confirm all README commands work exactly as written.
-- [ ] Confirm the four Skills are discoverable from the public repository.
+- [ ] Confirm `repo-map` and `lite-tools` are discoverable from the public
+  repository.
 
 ## Scope guardrails
 
@@ -463,8 +457,9 @@ Do not add any of the following as part of issue #3:
   tool set.
 - [ ] `repo-map commands` includes `go-lite`.
 - [ ] All four commands expose useful toolchain-independent help.
-- [ ] Four conventional Agent Skills exist and are discoverable through
-  `npx skills`.
+- [ ] Two conventional Agent Skills exist and are discoverable through
+  `npx skills`: `repo-map` for repository/local-tool discovery and
+  `lite-tools` for quieter Maven, npm/Node, and Go test workflows.
 - [ ] README prominently shows Skills support and the Skills badge.
 - [ ] Existing manual Git installation remains valid.
 - [ ] `curl ... | bash` automates the same repository-based installation model.

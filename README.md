@@ -4,6 +4,11 @@
 
 agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Its primary tools, `mvn-lite`, `npm-lite`, and `go-lite`, reduce build and test output noise so agents retain more useful context. Supporting utilities cover browser automation, VS Code extension testing, and local repository discovery. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 
+Agent Scripts provides two Agent Skills:
+
+- `repo-map` for repository and local-tool discovery
+- `lite-tools` for quieter, token-efficient Maven, npm/Node, and Go test workflows
+
 ## Tools
 
 ### Core Build & Test Wrappers
