@@ -1,6 +1,6 @@
 ---
 name: lite-tools
-description: Make Maven, npm/Node, and Go test workflows more introverted with compact build/test output that reduces noisy output and token or context usage for coding agents.
+description: Use compact wrappers when running routine Maven builds and tests, supported npm/Node test workflows, or Go tests. Select mvn-lite for supported Maven build and test workflows, npm-lite for npm run verify, npm run test:unit, or node --test, and go-lite for go test.
 ---
 
 # lite-tools
