@@ -1,2 +1,3 @@
 .agent-logs/
-experiments/test/npm-experiment/
+experiments/test/npm-experiment/*
+!experiments/test/npm-experiment/README.md

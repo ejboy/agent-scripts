@@ -21,9 +21,9 @@ projects:
 | [architect/sandbox](https://github.com/architect/sandbox) | `517360487e95ebbdf3a95a227bd1cfb0f7f63812` | Tape with `tap-arc` | Node 24.19.0, npm 11 |
 | [1Password/op-js](https://github.com/1Password/op-js) | `9ea073e6f7102ae8785e0cf9466ee19a7c803b75` | Jest 29.7.0 | Node 18.18.0, npm 10 |
 
-The checkouts, dependencies, raw outputs, retained logs, runtimes, and
-measurement harness remain under the gitignored `npm-experiment/` directory
-beside this report.
+The temporary checkouts, dependencies, raw outputs, retained logs, runtimes,
+and measurement harness used for this experiment were removed after the
+measurements. This report retains the pinned commits, method, and results.
 
 ## Method
 
