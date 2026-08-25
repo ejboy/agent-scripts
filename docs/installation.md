@@ -106,7 +106,7 @@ published `repo-map` and `lite-tools` Skill definitions under [`skills/`](../ski
 Install them with the Skills CLI when desired:
 
 ```bash
-npx skills add https://github.com/ejboy/agent-scripts --global --skill repo-map --skill lite-tools
+npx skills add ejboy/agent-scripts --global --skill repo-map --skill lite-tools
 ```
 
 Node.js/npm is needed only for `npx skills`. The repository installer does not
