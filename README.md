@@ -10,6 +10,9 @@ Agent Scripts provides two Agent Skills:
 - `repo-map` for repository and local-tool discovery
 - `lite-tools` for quieter, token-efficient Maven, npm/Node, and Go test workflows
 
+Related: [AI Badger handoff skills](https://github.com/PVRLabs/aibadger/tree/main/skills)
+provide `handoff` for continuing sessions in Badger and `badger-review` for independent reviews.
+
 ## Tools
 
 ### Core Build & Test Wrappers
