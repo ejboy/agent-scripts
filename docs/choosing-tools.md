@@ -12,7 +12,7 @@ The primary tools in this repository, `mvn-lite`, `npm-lite`, and `go-lite`, tar
 | **Secondary** | `html-screenshot` | Rendering a local file or URL to a PNG in one command | A persistent interactive browser session is required |
 | **Secondary** | `launch-browser` | Starting and managing a reusable Chrome DevTools session | Only a single screenshot is required |
 | **Secondary** | `vscode-test` | Testing a VS Code extension through repeatable launch, inspection, activation, and screenshot operations | Arbitrary DevTools evaluation or cross-platform editor automation is required |
-| **Secondary** | `repo-map` | Resolving a known machine-local repository or discovering an unknown local repository or helper | The project already provides a correct, stable path or command directly |
+| **Secondary** | `repolink` (RepoLink) | Resolving a known machine-local repository or discovering an unknown local repository or helper | The project already provides a correct, stable path or command directly |
 
 ## Measured output savings
 
@@ -56,21 +56,21 @@ Use `vscode-test` for macOS VS Code extension sessions. It exposes a stable comm
 Required project commands belong directly in that project's `AGENTS.md`. When another local repository is required, prefer a stable alias and resolve it directly:
 
 ```bash
-repo-map get aibadger
+repolink get aibadger
 ```
 
-Use `repo-map list` only when the required repository is unknown. Likewise, check a known optional helper directly:
+Use `repolink list` only when the required repository is unknown. Likewise, check a known optional helper directly:
 
 ```bash
-repo-map command html-screenshot
+repolink command html-screenshot
 ```
 
-Use `repo-map commands` only when the needed capability is unknown. `repo-map command NAME` checks the named command, while `repo-map commands --check` checks every registered command and exits nonzero if any command is unavailable.
+Use `repolink commands` only when the needed capability is unknown. `repolink command NAME` checks the named command, while `repolink commands --check` checks every registered command and exits nonzero if any command is unavailable.
 
-The experiments found that targeted `repo-map get NAME` guidance matched a supplied static path: both approaches used two shell commands, inspected one repository, and exposed no unrelated repository metadata. Generic discovery was less efficient because it required more commands and exposed the full registry. `repo-map` therefore provides portability and discovery rather than an inherent output reduction.
+The experiments found that targeted `repolink get NAME` guidance matched a supplied static path: both approaches used two shell commands, inspected one repository, and exposed no unrelated repository metadata. Generic discovery was less efficient because it required more commands and exposed the full registry. RepoLink therefore provides portability and discovery rather than an inherent output reduction.
 
-`repo-map` exposes a curated set of `agent-scripts` commands as built-in capabilities. The user-editable registry at `~/.agent-scripts/repo-map` stores additional repositories, descriptions, notes, and command metadata. Its records use `repo|name|path|description|notes` and `command|name|command|description` lines. It does not scan repositories, infer build systems, manage dependencies, or run project tasks.
+RepoLink exposes a curated set of `agent-scripts` commands as built-in capabilities. The user-editable registry remains at `~/.agent-scripts/repo-map` for compatibility and stores additional repositories, descriptions, notes, and command metadata. Its records use `repo|name|path|description|notes` and `command|name|command|description` lines. It does not scan repositories, infer build systems, manage dependencies, or run project tasks. The deprecated `repo-map` command forwards to `repolink`.
 
 ## Evidence
 
-The detailed methods, captured measurements, limitations, and rerun history remain under [`experiments/test/`](../experiments/test/). The primary build-wrapper reports are the [npm open-source project experiment](../experiments/test/NPM-LITE-OPEN-SOURCE-EXPERIMENT.md), [Apache Commons CLI Maven smoke test](../experiments/test/APACHE-COMMONS-CLI-MVN-LITE-SMOKE-TEST.md), [Financial Engine App Maven comparison](../experiments/test/PVR-LABS-FINANCIAL-ENGINE-APP.md), and [Scriptella Maven smoke test](../experiments/test/SCRIPTELLA-MVN-LITE-SMOKE-TEST.md). The [`repo-map` multi-project smoke test](../experiments/test/REPO-MAP-MULTI-PROJECT-SMOKE-TEST.md) covers discovery and browser helpers as well as the earlier wrapper comparisons.
+The detailed methods, captured measurements, limitations, and rerun history remain under [`experiments/test/`](../experiments/test/). The primary build-wrapper reports are the [npm open-source project experiment](../experiments/test/NPM-LITE-OPEN-SOURCE-EXPERIMENT.md), [Apache Commons CLI Maven smoke test](../experiments/test/APACHE-COMMONS-CLI-MVN-LITE-SMOKE-TEST.md), [Financial Engine App Maven comparison](../experiments/test/PVR-LABS-FINANCIAL-ENGINE-APP.md), and [Scriptella Maven smoke test](../experiments/test/SCRIPTELLA-MVN-LITE-SMOKE-TEST.md). The historical RepoMap multi-project smoke test remains available at [REPO-MAP-MULTI-PROJECT-SMOKE-TEST.md](../experiments/test/REPO-MAP-MULTI-PROJECT-SMOKE-TEST.md) and covers discovery and browser helpers as well as the earlier wrapper comparisons.

@@ -3,7 +3,9 @@ set -euo pipefail
 
 readonly repository_url="${AGENT_SCRIPTS_GIT_URL:-https://github.com/ejboy/agent-scripts.git}"
 readonly archive_url="${AGENT_SCRIPTS_ARCHIVE_URL:-https://github.com/ejboy/agent-scripts/archive/refs/heads/main.tar.gz}"
-readonly core_commands=(repo-map mvn-lite npm-lite go-lite)
+readonly core_commands=(repolink mvn-lite npm-lite go-lite)
+readonly compatibility_commands=(repo-map)
+readonly install_commands=("${core_commands[@]}" "${compatibility_commands[@]}")
 
 fail() {
 	printf 'Error: %s\n' "$1" >&2
@@ -14,11 +16,16 @@ validate_repository() {
 	local repository="$1"
 	local command
 
-	[[ -f "$repository/skills/repo-map/SKILL.md" ]] || fail "installation is missing skills/repo-map/SKILL.md"
+	[[ -f "$repository/skills/repolink/SKILL.md" ]] || fail "installation is missing skills/repolink/SKILL.md"
+	[[ -f "$repository/skills/repo-map/SKILL.md" ]] || fail "installation is missing the repo-map compatibility Skill"
 	[[ -f "$repository/skills/lite-tools/SKILL.md" ]] || fail "installation is missing skills/lite-tools/SKILL.md"
 	for command in "${core_commands[@]}"; do
 		[[ -f "$repository/scripts/$command" ]] || fail "installation is missing scripts/$command"
 		bash -n "$repository/scripts/$command" || fail "scripts/$command contains invalid Bash syntax"
+	done
+	for command in "${compatibility_commands[@]}"; do
+		[[ -f "$repository/scripts/$command" ]] || fail "installation is missing compatibility command scripts/$command"
+		/bin/sh -n "$repository/scripts/$command" || fail "scripts/$command contains invalid shell syntax"
 	done
 }
 
@@ -74,9 +81,9 @@ else
 fi
 
 validate_repository "$install_dir"
-chmod +x "${core_commands[@]/#/$install_dir/scripts/}"
+chmod +x "${install_commands[@]/#/$install_dir/scripts/}"
 
-for command in "${core_commands[@]}"; do
+for command in "${install_commands[@]}"; do
 	link="$bin_dir/$command"
 	if [[ -e "$link" && ! -L "$link" ]]; then
 		fail "$link exists and is not a symbolic link"
@@ -87,16 +94,18 @@ done
 printf 'Installed Agent Scripts in %s\n' "$install_dir"
 printf 'Installation mode: %s\n' "$mode"
 printf 'Core commands: %s\n' "${core_commands[*]}"
+printf 'Deprecated compatibility command: %s\n' "${compatibility_commands[*]}"
 if [[ ":$PATH:" == *":$bin_dir:"* ]]; then
 	printf 'The four core commands are ready to use from %s.\n' "$bin_dir"
 else
-	printf 'The core command symlinks were created in %s, which is not currently on PATH.\n' "$bin_dir"
+	printf 'The command symlinks were created in %s, which is not currently on PATH.\n' "$bin_dir"
 fi
 printf '\nFor all current and future Agent Scripts, add this line to your shell startup file:\n'
 printf 'export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"\n'
 if [[ "$mode" == git ]]; then
-	printf '\nUpdate this checkout with:\n'
+	printf '\nUpdate this checkout and refresh its command links with:\n'
 	printf 'git -C "$HOME/.local/share/agent-scripts" pull --ff-only\n'
+	printf 'bash "$HOME/.local/share/agent-scripts/install.sh"\n'
 else
 	printf '\nRerun this installer to update the archive snapshot.\n'
 fi

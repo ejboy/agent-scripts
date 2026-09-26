@@ -1,13 +1,13 @@
 # agent-scripts
 
-[![Version](https://img.shields.io/badge/version-0.2.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.2.0)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue)](https://github.com/ejboy/agent-scripts/tree/v0.3.0)
 [![skills.sh](https://skills.sh/b/ejboy/agent-scripts)](https://skills.sh/ejboy/agent-scripts)
 
 agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Its primary tools, `mvn-lite`, `npm-lite`, and `go-lite`, reduce build and test output noise so agents retain more useful context. Supporting utilities cover browser automation, VS Code extension testing, and local repository discovery. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 
 Agent Scripts provides two Agent Skills:
 
-- `repo-map` for repository and local-tool discovery
+- `repolink` for repository and local-tool discovery
 - `lite-tools` for quieter, token-efficient Maven, npm/Node, and Go test workflows
 
 Related: [AI Badger handoff skills](https://github.com/PVRLabs/aibadger/tree/main/skills)
@@ -26,7 +26,7 @@ provide `handoff` for continuing sessions in Badger and `badger-review` for inde
 - `html-screenshot` — render local HTML or URLs to PNG
 - `launch-browser` — launch Chrome with DevTools enabled
 - `vscode-test` — compact, approval-friendly VS Code extension testing
-- `repo-map` — local repository and agent-capability discovery
+- `repolink` — RepoLink, for local repository and agent-capability discovery
 
 See [choosing the right tool](docs/choosing-tools.md) for measured output savings, recommended use cases, and experiment limitations.
 
@@ -66,7 +66,7 @@ Add the `export` line to your shell startup file to make the tools available in 
 > [!NOTE]
 > Skills and command installation are separate. See
 > [`skills/README.md`](skills/README.md) for installing this repository's
-> `repo-map` and `lite-tools` skills. The repository installer installs
+> `repolink` and `lite-tools` skills. The repository installer installs
 > commands only and does not invoke the Skills CLI.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, uninstalling, and optional project-local pinning.
@@ -163,21 +163,23 @@ vscode-test stop
 
 The launch workspace can be a directory or an existing `.code-workspace` file. The default DevTools port is `9223`. Launch state, profiles, extension storage, and diagnostic logs are kept under `~/.agent-scripts/vscode-test`. Inspection does not accept arbitrary JavaScript: `inspect` emits a one-line JSON summary, `controls` lists visible accessible controls and their enclosing UI context, and `text` normalizes whitespace and defaults to at most 4,000 characters. `click` requires one exact visible aria-label match; `palette` selects one exact command; `wait-control` polls until the exact requested count is rendered. These operations require Node.js 22 or newer. Use `VSCODE_TEST_CODE_BIN` or `launch --code` to select another VS Code executable. `activate` requires managed launch state and focuses its recorded process ID, so it distinguishes test and regular windows from the same application bundle. Codex sandbox setup is documented in [the installation guide](docs/installation.md#codex-sandbox-access-for-browser-and-vs-code-tools).
 
-## repo-map
+## RepoLink
 
-`repo-map` is a machine-local registry for discovering related repositories and useful commands across projects. Projects should document their required commands directly; coding agents can use `repo-map` to discover additional machine-local capabilities and related repositories.
+RepoLink is a machine-local registry for discovering related repositories and useful commands across projects. Projects should document their required commands directly; coding agents can use `repolink` to discover additional machine-local capabilities and related repositories.
 
 ```bash
-repo-map
-repo-map command html-screenshot
-repo-map commands
-repo-map commands --check
-repo-map add ~/src/aibadger
-repo-map show aibadger
-repo-map get aibadger
+repolink
+repolink command html-screenshot
+repolink commands
+repolink commands --check
+repolink add ~/src/aibadger
+repolink show aibadger
+repolink get aibadger
 ```
 
 See [choosing the right tool](docs/choosing-tools.md#targeted-repository-discovery) for efficient discovery guidance, registry details, and measured results.
+
+The old `repo-map` command remains as a deprecated compatibility wrapper for existing scripts and skills. New instructions should use `repolink`.
 
 ## Status
 

@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# vscode-test 0.2.0
+# vscode-test 0.3.0
 # Runs compact, approval-friendly VS Code extension test operations.
 # https://github.com/ejboy/agent-scripts
 
 set -euo pipefail
 
-readonly AGENT_SCRIPTS_VERSION="0.2.0"
+readonly AGENT_SCRIPTS_VERSION="0.3.0"
 readonly default_code_bin="/Applications/Visual Studio Code.app/Contents/MacOS/Code"
 readonly default_port="9223"
 readonly readiness_attempts=50

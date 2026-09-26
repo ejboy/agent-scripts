@@ -45,10 +45,11 @@ run_installer() {
 
 assert_installation() {
 	local home="$1" command entry symlink_count=0
+	test -f "$home/.local/share/agent-scripts/skills/repolink/SKILL.md"
 	test -f "$home/.local/share/agent-scripts/skills/repo-map/SKILL.md"
 	test -f "$home/.local/share/agent-scripts/skills/lite-tools/SKILL.md"
 	test ! -e "$home/.local/share/agent-scripts/.agents"
-	for command in repo-map mvn-lite npm-lite go-lite; do
+	for command in repolink repo-map mvn-lite npm-lite go-lite; do
 		test -f "$home/.local/share/agent-scripts/scripts/$command"
 		test -x "$home/.local/share/agent-scripts/scripts/$command"
 		test -L "$home/.local/bin/$command"
@@ -57,8 +58,8 @@ assert_installation() {
 		[[ -L "$entry" ]] || continue
 		symlink_count=$((symlink_count + 1))
 	done
-	[[ "$symlink_count" == 4 ]] ||
-		fail_test 'installer exposed more or fewer than four core symlinks'
+	[[ "$symlink_count" == 5 ]] ||
+		fail_test 'installer must expose four core commands and one compatibility command'
 }
 
 fixture="$test_root/agent-scripts-main"
@@ -76,9 +77,9 @@ make_tool_path "$archive_bin"
 run_installer "$archive_home" "$archive_bin" "$archive" "$test_root/archive.out"
 assert_installation "$archive_home"
 test ! -e "$archive_home/.local/share/agent-scripts/.git"
-for command in repo-map mvn-lite npm-lite go-lite; do
+for command in repolink repo-map mvn-lite npm-lite go-lite; do
 	case "$command" in
-		repo-map) help_flag=--help ;;
+		repolink|repo-map) help_flag=--help ;;
 		*) help_flag="--help-$command" ;;
 	esac
 	HOME="$archive_home" PATH="$archive_home/.local/bin:$archive_bin" \
@@ -86,18 +87,19 @@ for command in repo-map mvn-lite npm-lite go-lite; do
 		fail_test "$command help failed after archive installation"
 done
 commands_output="$(HOME="$archive_home" PATH="$archive_home/.local/bin:$archive_bin" \
-	"$archive_home/.local/bin/repo-map" commands)"
-for command in repo-map mvn-lite npm-lite go-lite; do
-	assert_contains "$commands_output" "$command" "repo-map commands omitted $command"
+	"$archive_home/.local/bin/repolink" commands)"
+for command in repolink mvn-lite npm-lite go-lite; do
+	assert_contains "$commands_output" "$command" "repolink commands omitted $command"
 done
+[[ "$commands_output" != *'repo-map'* ]] || fail_test 'deprecated alias was presented as a registered command'
 set +e
 check_output="$(HOME="$archive_home" PATH="$archive_home/.local/bin:$archive_bin" \
-	"$archive_home/.local/bin/repo-map" commands --check)"
+	"$archive_home/.local/bin/repolink" commands --check)"
 check_status=$?
 set -e
-[[ "$check_status" -ne 0 ]] || fail_test 'repo-map commands --check did not report unavailable repository-only commands'
-for command in repo-map mvn-lite npm-lite go-lite; do
-	assert_contains "$check_output" "$command" "repo-map commands --check omitted $command"
+[[ "$check_status" -ne 0 ]] || fail_test 'repolink commands --check did not report unavailable repository-only commands'
+for command in repolink mvn-lite npm-lite go-lite; do
+	assert_contains "$check_output" "$command" "repolink commands --check omitted $command"
 done
 assert_contains "$(<"$test_root/archive.out")" 'not currently on PATH' 'installer did not explain missing ~/.local/bin PATH entry'
 assert_contains "$(<"$test_root/archive.out")" 'export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"' 'installer omitted full PATH guidance'

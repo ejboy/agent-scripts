@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-test_root="$(mktemp -d "${TMPDIR:-/tmp}/repo-map-test.XXXXXX")"
+test_root="$(mktemp -d "${TMPDIR:-/tmp}/repolink-test.XXXXXX")"
 cleanup() {
 	rm -rf -- "$test_root"
 }
@@ -13,8 +13,8 @@ fail_test() {
 	exit 1
 }
 
-run_map() {
-	HOME="$test_root/home" "$root/scripts/repo-map" "$@"
+run_repolink() {
+	HOME="$test_root/home" "$root/scripts/repolink" "$@"
 }
 
 repo_one="$test_root/first repository"
@@ -29,41 +29,47 @@ git -C "$repo_one" add file
 git -C "$repo_one" -c user.name=test -c user.email=test@example.test commit -q -m initial
 before_status="$(git -C "$repo_one" status --porcelain)"
 
-output="$(run_map --help)"
+output="$(run_repolink --help)"
 expected_version="$(<"$root/VERSION")"
-[[ "$output" == "repo-map $expected_version"$'\n\n'*'repo-map [list]'* ]] || fail_test '--help did not show version and usage'
-[[ "$(run_map --version)" == "repo-map $expected_version" ]] || fail_test '--version output was incorrect'
+[[ "$output" == "repolink $expected_version"$'\n\n'*'repolink [list]'* ]] || fail_test '--help did not show version and usage'
+[[ "$(run_repolink --version)" == "repolink $expected_version" ]] || fail_test '--version output was incorrect'
+wrapper_output="$(PATH="$root/scripts:$PATH" HOME="$test_root/home" "$root/scripts/repo-map" --help)"
+[[ "$wrapper_output" == *"repo-map is deprecated; use 'repolink' instead."* && "$wrapper_output" == *'Usage: repolink [list]'* ]] || fail_test 'repo-map --help did not announce the rename and show canonical help'
+wrapper_output="$(PATH="$root/scripts:$PATH" HOME="$test_root/home" "$root/scripts/repo-map" --version 2>"$test_root/wrapper.stderr")"
+[[ "$wrapper_output" == "repolink $expected_version" && ! -s "$test_root/wrapper.stderr" ]] || fail_test 'normal repo-map invocation produced deprecation noise or failed to forward'
+wrapper_output="$(PATH="$root/scripts:$PATH" HOME="$test_root/home" "$root/scripts/repo-map" get agent-scripts 2>"$test_root/wrapper.stderr")"
+[[ "$wrapper_output" == "$(cd -- "$root" && pwd -P)" && ! -s "$test_root/wrapper.stderr" ]] || fail_test 'repo-map did not silently forward normal commands'
 for subcommand in list add show get remove command commands; do
-	output="$(run_map "$subcommand" --help)"
-	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help did not show subcommand usage"
+	output="$(run_repolink "$subcommand" --help)"
+	[[ "$output" == *"Usage: repolink $subcommand"* ]] || fail_test "$subcommand --help did not show subcommand usage"
 done
 mkdir -p "$test_root/home/.agent-scripts"
 printf '%s\n' 'not-a-record' >"$test_root/home/.agent-scripts/repo-map"
 for subcommand in list add show get remove command commands; do
-	output="$(run_map "$subcommand" --help)"
-	[[ "$output" == *"Usage: repo-map $subcommand"* ]] || fail_test "$subcommand --help depended on a valid registry"
+	output="$(run_repolink "$subcommand" --help)"
+	[[ "$output" == *"Usage: repolink $subcommand"* ]] || fail_test "$subcommand --help depended on a valid registry"
 done
 rm -- "$test_root/home/.agent-scripts/repo-map"
-output="$(run_map)"
+output="$(run_repolink)"
 [[ "$output" == *'agent-scripts'* && "$output" == *'[built-in]'* ]] || fail_test 'fresh HOME omitted built-in repository'
 [[ ! -e "$test_root/home/.agent-scripts/repo-map" ]] || fail_test 'built-in discovery created a user registry'
 expected_root="$(cd -- "$root" && pwd -P)"
-[[ "$(run_map get agent-scripts)" == "$expected_root" ]] || fail_test 'built-in get returned the wrong path'
+[[ "$(run_repolink get agent-scripts)" == "$expected_root" ]] || fail_test 'built-in get returned the wrong path'
 symlink_path="$test_root/repo-map"
 ln -s "$root/scripts/repo-map" "$symlink_path"
-[[ "$(HOME="$test_root/home" "$symlink_path" get agent-scripts)" == "$expected_root" ]] || fail_test 'symlinked repo-map resolved the wrong built-in path'
-output="$(run_map show agent-scripts)"
+[[ "$(PATH="$root/scripts:$PATH" HOME="$test_root/home" "$symlink_path" get agent-scripts)" == "$expected_root" ]] || fail_test 'symlinked repo-map did not forward to RepoLink'
+output="$(run_repolink show agent-scripts)"
 [[ "$output" == *'Description: Local utilities for AI-assisted development'* ]] || fail_test 'built-in description was missing'
-for builtin_command in mvn-lite html-screenshot launch-browser vscode-test repo-map npm-lite go-lite; do
+for builtin_command in mvn-lite html-screenshot launch-browser vscode-test repolink npm-lite go-lite; do
 	[[ "$output" == *"$builtin_command"* ]] || fail_test "built-in command was missing: $builtin_command"
 done
-output="$(run_map commands)"
+output="$(run_repolink commands)"
 [[ "$output" == *'Registered commands:'* && "$output" == *'mvn-lite'* && "$output" == *'agent-scripts'* ]] || fail_test 'fresh commands omitted built-in capabilities'
-output="$(PATH="$root/scripts:$PATH" run_map command html-screenshot)"
+output="$(PATH="$root/scripts:$PATH" run_repolink command html-screenshot)"
 [[ "$output" == *'Command: html-screenshot'* && "$output" == *'Repository: agent-scripts'* && "$output" == *'Status: available'* && "$output" == *"Path: $root/scripts/html-screenshot"* && "$output" == *'Description: Render local HTML or URLs to PNG'* ]] || fail_test 'targeted command lookup did not show the available built-in command'
-output="$(PATH="$root/scripts:$PATH" run_map command vscode-test)"
+output="$(PATH="$root/scripts:$PATH" run_repolink command vscode-test)"
 [[ "$output" == *'Command: vscode-test'* && "$output" == *'Repository: agent-scripts'* && "$output" == *'Status: available'* && "$output" == *"Path: $root/scripts/vscode-test"* && "$output" == *'Description: Compact, approval-friendly VS Code extension testing'* ]] || fail_test 'targeted command lookup did not show vscode-test'
-output="$(PATH="$root/scripts:$PATH" run_map commands --check)"
+output="$(PATH="$root/scripts:$PATH" run_repolink commands --check)"
 [[ "$output" == *'COMMAND'* && "$output" == *'available'* && "$output" == *"$root/scripts/mvn-lite"* ]] || fail_test 'commands --check did not resolve built-in commands'
 [[ "$output" == *"go-lite"* && "$output" == *"$root/scripts/go-lite"* ]] || fail_test 'commands --check did not resolve go-lite'
 
@@ -72,11 +78,11 @@ mkdir -p "$fake_bin"
 printf '#!/usr/bin/env bash\nexit 99\n' >"$fake_bin/mktemp"
 chmod +x "$fake_bin/mktemp"
 for action in 'list' 'show agent-scripts' 'get agent-scripts' 'command html-screenshot' 'commands' 'commands --check'; do
-	PATH="$fake_bin:$root/scripts:$PATH" run_map $action >/dev/null || fail_test "read-only operation required mktemp: $action"
+	PATH="$fake_bin:$root/scripts:$PATH" run_repolink $action >/dev/null || fail_test "read-only operation required mktemp: $action"
 done
-! grep -Fq '<<<' "$root/scripts/repo-map" || fail_test 'repo-map used a temporary-file-backed here-string'
+! grep -Fq '<<<' "$root/scripts/repolink" || fail_test 'repolink used a temporary-file-backed here-string'
 
-(cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repo-map" add)
+(cd "$repo_one" && HOME="$test_root/home" "$root/scripts/repolink" add)
 registry="$test_root/home/.agent-scripts/repo-map"
 [[ -f "$registry" ]] || fail_test 'registry was not created under HOME'
 registry_file_mode="$(stat -f %Lp "$registry" 2>/dev/null || stat -c %a "$registry")"
@@ -84,56 +90,56 @@ registry_file_mode="$(stat -f %Lp "$registry" 2>/dev/null || stat -c %a "$regist
 [[ "$(git -C "$repo_one" status --porcelain)" == "$before_status" ]] || fail_test 'add modified the Git repository'
 grep -Fxq "repo|first-repository|$(cd -- "$repo_one" && pwd -P)||" "$registry" || fail_test 'current repository was not added'
 
-run_map add "$repo_two" >/dev/null
+run_repolink add "$repo_two" >/dev/null
 expected_two="$(cd -- "$repo_two" && pwd -P)"
-[[ "$(run_map get second-repository)" == "$expected_two" ]] || fail_test 'get did not print only the canonical path'
-[[ "$(run_map get first-repository)" == "$(cd -- "$repo_one" && pwd -P)" ]] || fail_test 'get failed for first repository'
+[[ "$(run_repolink get second-repository)" == "$expected_two" ]] || fail_test 'get did not print only the canonical path'
+[[ "$(run_repolink get first-repository)" == "$(cd -- "$repo_one" && pwd -P)" ]] || fail_test 'get failed for first repository'
 set +e
-partial_output="$(run_map get REPOSITORY 2>"$test_root/partial.stderr")"
+partial_output="$(run_repolink get REPOSITORY 2>"$test_root/partial.stderr")"
 partial_status=$?
 set -e
 partial_error="$(<"$test_root/partial.stderr")"
 [[ "$partial_status" -ne 0 && -z "$partial_output" && "$partial_error" == *'Error: unknown repository: REPOSITORY'* && "$partial_error" == *$'Partial matches:\n  first-repository\n  second-repository'* ]] || fail_test 'get did not suggest case-insensitive partial matches on stderr'
-output="$(run_map list)"
+output="$(run_repolink list)"
 [[ "$output" == *'agent-scripts'* && "$output" == *'first-repository'* && "$output" == *'second-repository'* ]] || fail_test 'list omitted a repository'
-output="$(run_map show second-repository)"
+output="$(run_repolink show second-repository)"
 [[ "$output" == *'Commands:'* ]] || fail_test 'repository without commands was not valid'
 
 awk -F '|' -v OFS='|' 'NR == 1 && $1 == "repo" { $4 = "User description"; $5 = "User notes" } { print }' "$registry" >"$test_root/registry.tmp"
 mv -- "$test_root/registry.tmp" "$registry"
 printf '%s\n' 'command|first-repository|mvn-lite|Compact Maven output' 'command|first-repository|html-screenshot|Render HTML to PNG' >>"$registry"
-output="$(run_map show first-repository)"
+output="$(run_repolink show first-repository)"
 [[ "$output" == *'Description: User description'* ]] || fail_test 'user description was not shown'
 [[ "$output" == *'mvn-lite'* && "$output" == *'Compact Maven output'* ]] || fail_test 'user command metadata was not shown'
 [[ "$output" == *'Notes: User notes'* ]] || fail_test 'user notes were not preserved'
 [[ "$output" == *'first-repository'* ]] || fail_test 'show output was malformed'
 
-output="$(run_map commands)"
+output="$(run_repolink commands)"
 [[ "$output" == *'mvn-lite'* && "$output" == *'first-repository'* && "$output" == *'html-screenshot'* ]] || fail_test 'commands did not aggregate metadata'
-output="$(PATH="$root/scripts:$PATH" run_map command mvn-lite)"
+output="$(PATH="$root/scripts:$PATH" run_repolink command mvn-lite)"
 [[ "$output" == *'Repository: agent-scripts'* && "$output" == *'Repository: first-repository'* ]] || fail_test 'targeted command lookup did not distinguish duplicate registrations'
 
 printf '%s\n' 'command|first-repository|definitely-unavailable-command|Unavailable test command' >>"$registry"
 set +e
-targeted_unavailable_output="$(PATH="$root/scripts:$PATH" run_map command definitely-unavailable-command 2>&1)"
+targeted_unavailable_output="$(PATH="$root/scripts:$PATH" run_repolink command definitely-unavailable-command 2>&1)"
 targeted_unavailable_status=$?
 set -e
 [[ "$targeted_unavailable_status" -ne 0 && "$targeted_unavailable_output" == *'Status: missing'* && "$targeted_unavailable_output" == *'Path: -'* ]] || fail_test 'targeted command lookup did not fail for an unavailable command'
 
 set +e
-unavailable_output="$(PATH="$root/scripts:$PATH" run_map commands --check 2>&1)"
+unavailable_output="$(PATH="$root/scripts:$PATH" run_repolink commands --check 2>&1)"
 unavailable_status=$?
 set -e
 [[ "$unavailable_status" -ne 0 && "$unavailable_output" == *'definitely-unavailable-command'* && "$unavailable_output" == *'missing'* ]] || fail_test 'commands --check did not fail for an unavailable command'
 
 set +e
-unknown_command_output="$(run_map command unknown-command 2>&1)"
+unknown_command_output="$(run_repolink command unknown-command 2>&1)"
 unknown_command_status=$?
 set -e
 [[ "$unknown_command_status" -ne 0 && "$unknown_command_output" == *'unknown command'* ]] || fail_test 'targeted command lookup accepted an unknown command'
 
 set +e
-duplicate_output="$(run_map add "$repo_two" 2>&1)"
+duplicate_output="$(run_repolink add "$repo_two" 2>&1)"
 duplicate_status=$?
 set -e
 [[ "$duplicate_status" -ne 0 && "$duplicate_output" == *'already registered'* ]] || fail_test 'duplicate add did not fail clearly'
@@ -143,53 +149,53 @@ mkdir -p "$reserved_repo"
 git -C "$reserved_repo" init -q
 git -C "$reserved_repo" remote add origin 'git@example.test:team/agent-scripts.git'
 set +e
-reserved_output="$(run_map add "$reserved_repo" 2>&1)"
+reserved_output="$(run_repolink add "$reserved_repo" 2>&1)"
 reserved_status=$?
 set -e
 [[ "$reserved_status" -ne 0 && "$reserved_output" == *'reserved'* ]] || fail_test 'add did not reject reserved repository name'
 
 for action in 'get absent' 'show absent' 'remove absent'; do
 	set +e
-	unknown_output="$(run_map $action 2>&1)"
+	unknown_output="$(run_repolink $action 2>&1)"
 	unknown_status=$?
 	set -e
 	[[ "$unknown_status" -ne 0 && "$unknown_output" == *'unknown repository'* ]] || fail_test "unknown repository did not fail: $action"
 done
 
 registry_before_remove="$(<"$registry")"
-run_map remove first-repository >/dev/null
+run_repolink remove first-repository >/dev/null
 [[ "$(git -C "$repo_one" status --porcelain)" == "$before_status" ]] || fail_test 'remove modified the Git repository'
 [[ "$registry_before_remove" != "$(<"$registry")" ]] || fail_test 'remove did not change the registry'
 ! grep -Fq 'first-repository' "$registry" || fail_test 'remove left repository records behind'
 
 printf '%s\n' 'repo|agent-scripts|/shadow||' >"$registry"
 set +e
-reserved_record_output="$(run_map list 2>&1)"
+reserved_record_output="$(run_repolink list 2>&1)"
 reserved_record_status=$?
 set -e
 [[ "$reserved_record_status" -ne 0 && "$reserved_record_output" == *'reserved repository name'* ]] || fail_test 'reserved registry record was accepted'
 
 printf '%s\n' 'command|ghost|unavailable|No such command' >"$registry"
 set +e
-orphan_output="$(run_map list 2>&1)"
+orphan_output="$(run_repolink list 2>&1)"
 orphan_status=$?
 set -e
 [[ "$orphan_status" -ne 0 && "$orphan_output" == *'orphan command record'* ]] || fail_test 'orphan command record was accepted'
 
 printf '%s\n' 'repo|no-commands|/does/not/exist||' >"$registry"
-output="$(run_map show no-commands)"
+output="$(run_repolink show no-commands)"
 [[ "$output" == *'Status: missing'* && "$output" == *'Commands:'* ]] || fail_test 'missing repository was not reported clearly'
 set +e
-missing_output="$(run_map get no-commands 2>&1)"
+missing_output="$(run_repolink get no-commands 2>&1)"
 missing_status=$?
 set -e
 [[ "$missing_status" -ne 0 && "$missing_output" == *'path is missing'* ]] || fail_test 'missing get did not fail clearly'
 
 printf '%s\n' 'not-a-record' >"$registry"
 set +e
-malformed_output="$(run_map list 2>&1)"
+malformed_output="$(run_repolink list 2>&1)"
 malformed_status=$?
 set -e
 [[ "$malformed_status" -ne 0 && "$malformed_output" == *'malformed registry line'* ]] || fail_test 'malformed registry was not rejected'
 
-printf '%s\n' 'repo-map tests passed'
+printf '%s\n' 'repolink tests passed'

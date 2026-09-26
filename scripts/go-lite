@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-# go-lite 0.2.0
+# go-lite 0.3.0
 # Compact Go test output for coding-agent workflows.
 # https://github.com/ejboy/agent-scripts
 
 set -euo pipefail
 
-readonly AGENT_SCRIPTS_VERSION="0.2.0"
+readonly AGENT_SCRIPTS_VERSION="0.3.0"
 readonly FAILURE_EXCERPT_BYTES=7000
 readonly LOG_RETENTION_MINUTES=10080
 readonly DEFAULT_CACHE_DIR="/tmp/go-lite-cache"
