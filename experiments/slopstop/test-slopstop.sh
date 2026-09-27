@@ -11,7 +11,13 @@ make_stub() { local name="$1" body="$2"; printf '%s\n' '#!/usr/bin/env bash' "$b
 make_stub uname 'echo Darwin'
 make_stub id 'echo developer'
 make_stub sleep 'exit 0'
-make_stub ps 'cat "$FAKE_PS_OUTPUT"'
+ps_stub='while read -r user pid ppid elapsed cpu rss command_line; do
+  tty="??"
+  [[ "$pid" == "${FAKE_PS_TTY_PID:-}" ]] && tty="${FAKE_PS_TTY:-??}"
+  printf "%s %s %s %s %s %s %s %s\n" "$user" "$pid" "$ppid" "$tty" "$elapsed" "$cpu" "$rss" "$command_line"
+done < "$FAKE_PS_OUTPUT"'
+make_stub ps "$ps_stub"
+make_stub osascript 'printf x >>"$FAKE_OSASCRIPT_CALLS"; [[ -n "${FAKE_OSASCRIPT_FAIL:-}" ]] && exit 1; cat "$FAKE_OSASCRIPT_OUTPUT"; if [[ -n "${FAKE_OSASCRIPT_HANG:-}" ]]; then printf "%s\n" "$$" >"$FAKE_OSASCRIPT_HANG"; exec /bin/sleep 30; fi'
 make_stub kill 'exit 0'
 make_stub colima 'case "$1 $2" in "status --json") cat "$FAKE_COLIMA_STATUS" ;; esac; case "$1" in stop) echo stopped >>"$FAKE_COLIMA_CALLS" ;; esac'
 make_stub docker 'if [[ "$1" == --context ]]; then [[ -n "${FAKE_DOCKER_FAILURE:-}" ]] && exit 1; cat "$FAKE_CONTAINERS"; else cat "$FAKE_GLOBAL_CONTAINERS"; fi'
@@ -37,6 +43,8 @@ make_stub gradle 'case "$1" in --status) cat "$FAKE_GRADLE_STATUS" ;; --stop) ec
 make_stub mvnd 'case "$1" in --status) cat "$FAKE_MVND_STATUS" ;; --stop) echo stopped >>"$FAKE_MVND_CALLS" ;; esac'
 make_stub launchctl 'cat "$FAKE_LAUNCHCTL_LIST"'
 export FAKE_PS_OUTPUT="$test_root/ps"
+export FAKE_OSASCRIPT_CALLS="$test_root/osascript-calls"
+export FAKE_OSASCRIPT_OUTPUT="$test_root/osascript-output"
 export FAKE_COLIMA_STATUS="$test_root/colima-status"
 export FAKE_COLIMA_CALLS="$test_root/colima-calls"
 export FAKE_CONTAINERS="$test_root/containers"
@@ -50,13 +58,14 @@ export FAKE_LAUNCHCTL_LIST="$test_root/launchctl-list"
 printf '%s\n' 'PID	Status	Label' >"$FAKE_LAUNCHCTL_LIST"
 printf '%s\n' '{"status":"Running","runtime":"docker","docker_socket":"unix:///Users/test/.colima/default/docker.sock"}' >"$FAKE_COLIMA_STATUS"
 : >"$FAKE_CONTAINERS"; : >"$FAKE_COLIMA_CALLS"; : >"$FAKE_K8S_CONTAINERS"
+: >"$FAKE_OSASCRIPT_CALLS"; : >"$FAKE_OSASCRIPT_OUTPUT"
 : >"$FAKE_GRADLE_CALLS"; : >"$FAKE_MVND_CALLS"
 printf '%s\n' 'No Gradle daemons are running.' >"$FAKE_GRADLE_STATUS"
 printf '%s\n' 'No daemons are running.' >"$FAKE_MVND_STATUS"
 printf '%s\n' global-container >"$FAKE_GLOBAL_CONTAINERS"
 
 printf '%s\n' \
-  'developer  101  1  1-00:00:00  1.0  200000 /usr/local/bin/node /project with spaces/vite --host' \
+  'developer  101  1  07:59:59  1.0  200000 /usr/local/bin/node /project with spaces/vite --host' \
   'other      102  1  2-00:00:00 50.0 400000 /usr/bin/kernel_task' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 [[ "$output" == *'Safe to stop'* && "$output" == *'--stop-safe'* && "$output" == *'Colima'* ]] || fail_test 'empty Colima was not safe'
@@ -160,8 +169,57 @@ output="$(run_scan)"
 [[ "$output" == *'elevated CPU'* ]] || fail_test 'CPU review missing elevated-CPU detail'
 [[ "$output" != *'pid 201'* ]] || fail_test 'young high CPU OpenCode was reviewed'
 [[ "$output" == *'java'* && "$output" == *'pid 202'* ]] || fail_test 'high-memory Gradle was not reviewed'
-[[ "$output" == *'high memory developer workload'* ]] || fail_test 'high-memory review missing detail'
+[[ "$output" == *'old developer process ≥100 MiB'* ]] || fail_test 'memory review missing detail'
 [[ "$output" != *'pid 203'* && "$output" != *'kernel_task'* ]] || fail_test 'unrecognized/system process was reviewed'
+
+printf '%s\n' \
+  'developer  220  1  08:00:00  0.0  102400 /opt/bin/codex' \
+  'developer  221  1  08:00:00  0.0  102400 /Users/dev/.local/bin/claude' \
+  'developer  222  1  08:00:00  0.0  102400 /opt/bin/opencode' \
+  'developer  223  1  08:00:00  0.0  102400 /opt/bin/node /opt/lib/node_modules/@openai/codex/bin/codex.js' \
+  'developer  224  1  08:00:00  0.0  102400 /opt/bin/bun /opt/lib/node_modules/@anthropic-ai/claude-code/cli.js --resume' \
+  'developer  225  1  08:00:00  0.0  102400 /opt/bin/vite' \
+  'developer  226  1  08:00:00  0.0  102399 /opt/bin/codex' \
+  'developer  227  1  07:59:59  0.0  102400 /opt/bin/claude' \
+  'developer  228  1  08:00:00  0.0  102400 /opt/bin/unknown-worker' \
+  'developer  229  1  08:00:00  0.0  102400 /opt/bin/node server.js codex claude /opt/lib/node_modules/@openai/codex/bin/codex.js' \
+  'other      230  1  08:00:00  0.0  102400 /opt/bin/claude' \
+  'developer  231  1  08:00:00  0.0  102400 /opt/bin/claude-helper' >"$FAKE_PS_OUTPUT"
+output="$(run_scan --stop-safe)"
+for pid in 220 221 222 223 224 225; do
+	[[ "$output" == *"pid $pid"* ]] || fail_test "old quiet developer process pid $pid was not reviewed"
+done
+for pid in 226 227 228 229 230 231; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "below-threshold or unrelated process pid $pid was reviewed"
+done
+[[ "$output" == *'old developer process ≥100 MiB'* && "$output" != *'Stopped'* ]] || fail_test 'old developer processes were not review-only'
+
+: >"$FAKE_OSASCRIPT_CALLS"
+printf '%s\n' $'/dev/ttys999\tunrelated — zsh' $'/dev/ttys006\tagent-scripts — codex' >"$FAKE_OSASCRIPT_OUTPUT"
+output="$(FAKE_PS_TTY_PID=220 FAKE_PS_TTY=ttys006 SLOPSTOP_WIDTH=120 run_scan)"
+[[ "$output" == *'terminal: agent-scripts — codex'* ]] || fail_test 'Terminal label missing from Codex review'
+[[ "$(wc -c <"$FAKE_OSASCRIPT_CALLS")" -eq 1 ]] || fail_test 'Terminal was not queried once'
+
+: >"$FAKE_OSASCRIPT_CALLS"
+output="$(FAKE_PS_TTY_PID=223 FAKE_PS_TTY=ttys006 SLOPSTOP_WIDTH=120 run_scan)"
+[[ "$output" == *'terminal: agent-scripts — codex'* ]] || fail_test 'Terminal label missing from packaged Codex review'
+
+: >"$FAKE_OSASCRIPT_CALLS"
+output="$(run_scan)"
+[[ "$output" != *'terminal:'* && ! -s "$FAKE_OSASCRIPT_CALLS" ]] || fail_test 'detached agents triggered Terminal lookup'
+
+: >"$FAKE_OSASCRIPT_CALLS"
+output="$(FAKE_OSASCRIPT_FAIL=1 FAKE_PS_TTY_PID=220 FAKE_PS_TTY=ttys006 run_scan 2>&1)"
+[[ "$output" != *'terminal:'* && "$output" != *'osascript'* ]] || fail_test 'Terminal query failure was not quiet'
+
+timeout_start=$SECONDS
+output="$(FAKE_OSASCRIPT_HANG="$test_root/query-pid" FAKE_PS_TTY_PID=220 FAKE_PS_TTY=ttys006 run_scan 2>&1)"
+((SECONDS - timeout_start < 10)) || fail_test 'Terminal lookup exceeded timeout budget'
+[[ "$output" == *'pid 220'* && "$output" != *'terminal:'* && "$output" != *'Killed'* ]] || fail_test 'Terminal timeout leaked partial labels or hid report'
+query_pid="$(cat "$test_root/query-pid")"
+if kill -0 "$query_pid" 2>/dev/null; then
+	fail_test 'timed-out Terminal query was left running'
+fi
 
 printf '%s\n' 'developer  210  1  10:00:00  4.9  100000 /opt/opencode opencode --serve' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
@@ -295,6 +353,22 @@ for pid in 401 402 403 404 406 407 409; do
 	[[ "$output" != *"pid $pid"* ]] || fail_test "generic/system/other-user pid $pid was incorrectly reviewed"
 done
 [[ "$output" == *$'Needs review\n(none)'* ]] || fail_test 'expected empty review for negative recognition fixtures'
+
+printf '%s\n' \
+  'developer  540  1  08:00:00  0.0  1048576 /opt/tools/unknown-worker' \
+  'developer  541  1  08:00:00  0.0  1048575 /opt/tools/small-worker' \
+  'developer  542  1  07:59:59  0.0  1048576 /opt/tools/young-worker' \
+  'other      543  1  08:00:00  0.0  1048576 /opt/tools/other-worker' \
+  'developer  544  1  08:00:00  0.0  1048576 /usr/libexec/system-worker' \
+  'developer  545  1  08:00:00  0.0  1048576 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
+  'developer  546  1  08:00:00  0.0  1048576 qemu-system-x86_64 -machine q35' \
+  'developer  547  1  08:00:00  0.0  1048576 /Applications/Docker.app/Contents/MacOS/com.docker.backend' >"$FAKE_PS_OUTPUT"
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'pid 540'* && "$output" == *'old high-memory process'* ]] || fail_test 'generic memory threshold missing distinct reason'
+for pid in 541 542 543 544 545 546 547; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "generic memory fallback incorrectly reviewed pid $pid"
+done
+[[ "$output" != *'Stopped'* ]] || fail_test 'generic high-memory process was stopped'
 
 # Generic old/high-CPU fallback: unknown current-user processes, ≥8h, CPU ≥20%.
 printf '%s\n' \
@@ -459,6 +533,21 @@ output="$(run_scan)"
 [[ "$output" != *'pid 9206'* ]] || fail_test 'high-CPU OrbStack backend was listed separately'
 [[ "$output" != *'pid 9207'* ]] || fail_test 'Virtualization.framework host process was reviewed'
 
+printf '%s\n' \
+  'developer  9210  1  08:00:00  0.0  102400 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9211  1  08:00:00  0.0  2097151 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
+  'developer  9212  1  08:00:00  0.0  2097152 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9213  1  08:00:00  0.0  2097152 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
+  'developer  9214  1  07:59:59  0.0  2097152 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9215  1  01:00:00  20.0  100000 /Applications/OrbStack.app/Contents/MacOS/OrbStack' >"$FAKE_PS_OUTPUT"
+output="$(run_scan)"
+for pid in 9210 9211 9214; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "below-threshold container app pid $pid was reviewed"
+done
+for pid in 9212 9213 9215; do
+	[[ "$output" == *"pid $pid"* ]] || fail_test "container app at resource threshold pid $pid was not reviewed"
+done
+
 long_name_out="$(SLOPSTOP_WIDTH=40 run_scan)"
 while IFS= read -r line; do
 	((${#line} <= 40)) || fail_test "long name overflowed terminal width: ${#line} <$line>"
@@ -534,7 +623,8 @@ post_clear_log="$test_root/post-clear-commands"
 : >"$post_clear_log"
 rm -f "$progress_shown" "$progress_cleared"
 make_stub id 'if [[ -f "'"$progress_cleared"'" ]]; then echo id >>"'"$post_clear_log"'"; fi; echo developer'
-make_stub ps 'if [[ -f "'"$progress_cleared"'" ]]; then echo ps >>"'"$post_clear_log"'"; fi; cat "$FAKE_PS_OUTPUT"'
+make_stub ps 'if [[ -f "'"$progress_cleared"'" ]]; then echo ps >>"'"$post_clear_log"'"; fi
+'"$ps_stub"
 make_stub sort 'if [[ -f "'"$progress_cleared"'" ]]; then echo sort >>"'"$post_clear_log"'"; fi; /usr/bin/sort "$@"'
 printf '%s\n' \
   "developer  200  1  10:00:00  8.2  420000 /opt/opencode opencode --serve" \

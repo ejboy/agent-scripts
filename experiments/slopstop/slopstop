@@ -10,7 +10,9 @@ readonly MIN_OLD_AGE_SECONDS=$((8 * 60 * 60))
 readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
 readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
-readonly REVIEW_RSS_KB=$((2 * 1024 * 1024))
+readonly REVIEW_RSS_KB=$((100 * 1024))
+readonly GENERIC_REVIEW_RSS_KB=$((1024 * 1024))
+readonly CONTAINER_REVIEW_RSS_KB=$((2 * 1024 * 1024))
 # Two-column layout: name min width + gap + details. PID/metrics live in details.
 readonly NAME_COLUMN_WIDTH=12
 readonly MIN_DETAIL_WIDTH=20
@@ -18,6 +20,7 @@ readonly MIN_DETAIL_WIDTH=20
 
 mode="scan"
 tmp_dir=""
+terminal_query_pid=""
 current_user=""
 ps_command=""
 sort_command=""
@@ -29,6 +32,7 @@ mvnd_idle_count=0
 excluded_review_pids=" "
 safe_name=(); safe_age=(); safe_cpu=(); safe_memory=(); safe_details=(); safe_id=()
 review_pid=(); review_name=(); review_age=(); review_cpu=(); review_memory=(); review_details=(); review_kill=()
+review_tty=(); review_agent=(); terminal_tty=(); terminal_title=()
 
 usage() {
 	printf '%s\n' \
@@ -42,6 +46,10 @@ usage() {
 }
 fail() { printf 'Error: %s\n' "$1" >&2; exit 1; }
 cleanup() {
+	if [[ -n "$terminal_query_pid" ]]; then
+		kill -KILL "$terminal_query_pid" 2>/dev/null || true
+		wait "$terminal_query_pid" 2>/dev/null || true
+	fi
 	clear_scan_progress
 	[[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"
 }
@@ -100,7 +108,7 @@ launchctl_services="$tmp_dir/launchctl-services"
 
 take_snapshot() {
 	local destination="$1"
-	"$ps_command" -axo user= -o pid= -o ppid= -o etime= -o '%cpu=' -o rss= -o command= >"$destination" || fail "could not read the process table"
+	"$ps_command" -axo user= -o pid= -o ppid= -o tty= -o etime= -o '%cpu=' -o rss= -o command= >"$destination" || fail "could not read the process table"
 }
 
 collect_and_prepare_reviews() {
@@ -108,6 +116,7 @@ collect_and_prepare_reviews() {
 	collect_launchctl_services
 	take_snapshot "$process_snapshot"
 	collect_reviews "$process_snapshot"
+	collect_terminal_labels
 	clear_scan_progress
 }
 
@@ -238,11 +247,22 @@ python_http_server_port() {
 }
 
 # Raw qemu/Virtualization is intentionally not listed (not actionable).
+is_agent_process() {
+	local name="$1" command_line="$2"
+	case "$name" in
+		codex|claude|opencode) return 0 ;;
+		node|bun)
+			[[ "$command_line" =~ ^[^[:space:]]+[[:space:]]+[^[:space:]]*/(@openai/codex/bin/codex\.js|@anthropic-ai/claude-code/cli\.js)([[:space:]]|$) ]] && return 0
+			[[ "$name" == bun && "$command_line" =~ ^[^[:space:]]+[[:space:]]+run[[:space:]]+opencode([[:space:]]|$) ]] && return 0
+			;;
+	esac
+	return 1
+}
 is_allowlisted_process() {
 	local name="$1" command_line="$2"
+	is_agent_process "$name" "$command_line" && return 0
 	[[ "$command_line" == *opencode* ]] && return 0
 	case "$name:$command_line" in
-		opencode:*|*:*bun*opencode*) return 0 ;;
 		java:*GradleDaemon*|java:*org.gradle.launcher.daemon*|java:*gradle*daemon*|java:*KotlinCompileDaemon*|java:*kotlin-daemon*|java:*org.jetbrains.kotlin.daemon*|java:*mvnd*|java:*maven.daemon*) return 0 ;;
 		mvnd:*|gradle:*|kotlin-daemon:*) return 0 ;;
 		vite:*|next:*|next-server:*|webpack:*|webpack-dev-server:*|nodemon:*|air:*|cargo-watch:*) return 0 ;;
@@ -252,7 +272,7 @@ is_allowlisted_process() {
 	return 1
 }
 # Obvious macOS services are not useful generic review candidates.
-# This exclusion applies only to the generic old/high-CPU fallback.
+# This exclusion applies only to the generic CPU/memory fallback.
 is_generic_system_process() {
 	local name="$1" command_line="$2"
 
@@ -307,8 +327,9 @@ is_not_listed_process() {
 }
 is_review_candidate() {
 	local age="$1" cpu_int="${2%.*}" rss="$3"
+	local min_rss="${4:-$REVIEW_RSS_KB}"
 	((age >= MIN_OLD_AGE_SECONDS && cpu_int >= REVIEW_CPU_PERCENT)) && return 0
-	((age >= MIN_OLD_AGE_SECONDS && rss >= REVIEW_RSS_KB)) && return 0
+	((age >= MIN_OLD_AGE_SECONDS && rss >= min_rss)) && return 0
 	((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) && return 0
 	return 1
 }
@@ -320,11 +341,11 @@ is_excluded_review_pid() {
 }
 
 collect_reviews() {
-	local snapshot="$1" user pid ppid elapsed cpu rss command_line age name
-	local value days hours minutes seconds first reason cpu_int launch_label
+	local snapshot="$1" user pid ppid tty elapsed cpu rss command_line age name
+	local value days hours minutes seconds first reason cpu_int launch_label agent
 	local formatted_age formatted_cpu formatted_memory
 	: >"$tmp_dir/reviews"
-	while read -r user pid ppid elapsed cpu rss command_line; do
+	while read -r user pid ppid tty elapsed cpu rss command_line; do
 		[[ -n "${pid:-}" && "$pid" != "PID" ]] || continue
 		[[ "$user" == "$current_user" ]] || continue
 		[[ "$pid" =~ ^[0-9]+$ && "$rss" =~ ^[0-9]+$ ]] || continue
@@ -346,7 +367,7 @@ collect_reviews() {
 			reason="detached debug browser"
 			launch_label="$(launchctl_label_for_browser "$pid" "$ppid")" || launch_label=""
 		elif is_container_app_review "$command_line"; then
-			is_review_candidate "$age" "$cpu" "$rss" || continue
+			is_review_candidate "$age" "$cpu" "$rss" "$CONTAINER_REVIEW_RSS_KB" || continue
 			name="$(container_app_display_name "$command_line")"
 			reason="container runtime"
 		elif is_python_http_server "$command_line"; then
@@ -361,20 +382,28 @@ collect_reviews() {
 					|| ((age >= HIGH_CPU_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)); then
 					reason="elevated CPU"
 				else
-					reason="high memory developer workload"
+					reason="old developer process ≥100 MiB"
 				fi
 			else
 				[[ "$pid" == "$$" ]] && continue
 				is_not_listed_process "$name" "$command_line" && continue
 				is_generic_system_process "$name" "$command_line" && continue
-				((age >= MIN_OLD_AGE_SECONDS && cpu_int >= HIGH_CPU_PERCENT)) || continue
-				reason="old high-CPU process"
+				((age >= MIN_OLD_AGE_SECONDS)) || continue
+				if ((cpu_int >= HIGH_CPU_PERCENT)); then
+					reason="old high-CPU process"
+				elif ((rss >= GENERIC_REVIEW_RSS_KB)); then
+					reason="old high-memory process"
+				else
+					continue
+				fi
 			fi
 		fi
 
-		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" "$reason" "$launch_label" >>"$tmp_dir/reviews"
+		agent=-
+		is_agent_process "$name" "$command_line" && agent=agent
+		printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$pid" "$name" "$age" "$cpu" "$rss" "$reason" "$tty" "$agent" "$launch_label" >>"$tmp_dir/reviews"
 	done <"$snapshot"
-	while IFS=$'\t' read -r pid name age cpu rss detail kill_hint; do
+	while IFS=$'\t' read -r pid name age cpu rss detail tty agent kill_hint; do
 		formatted_age="$(format_age "$age")"
 		formatted_cpu="$(format_cpu "$cpu")"
 		formatted_memory="$(format_memory "$rss")"
@@ -384,6 +413,8 @@ collect_reviews() {
 		review_cpu+=("$formatted_cpu")
 		review_memory+=("$formatted_memory")
 		review_details+=("$detail")
+		review_tty+=("$tty")
+		review_agent+=("$agent")
 		review_kill+=("$kill_hint")
 	done < <(LC_ALL=C "$sort_command" -t $'\t' -k4,4nr "$tmp_dir/reviews")
 }
@@ -622,8 +653,88 @@ print_safe_section() {
 	done
 	printf '\n'
 }
+collect_terminal_labels() {
+	local i tty title attempt query_status
+	for ((i = 0; i < ${#review_pid[@]}; i++)); do
+		if [[ "${review_agent[i]}" == agent && "${review_tty[i]}" != '??' && "${review_tty[i]}" != - ]]; then
+			break
+		fi
+	done
+	((i < ${#review_pid[@]})) || return 0
+	osascript -e '
+if application "Terminal" is not running then return ""
+tell application "Terminal" to set selectedTTYs to tty of selected tab of every window
+set windowTTYs to {}
+repeat with selectedTTY in selectedTTYs
+	set end of windowTTYs to {contents of selectedTTY}
+end repeat
+set windowTitles to {}
+set allTabsAvailable to false
+set titlesVerified to false
+try
+	tell application "Terminal" to set windowTTYs to tty of every tab of every window
+	set allTabsAvailable to true
+end try
+try
+	with timeout of 1 second
+		tell application "Terminal" to set windowTitles to custom title of every tab of every window
+		tell application "Terminal" to set confirmedTTYs to tty of every tab of every window
+		set titlesVerified to allTabsAvailable and confirmedTTYs is equal to windowTTYs
+	end timeout
+end try
+set outputText to ""
+repeat with windowIndex from 1 to count of windowTTYs
+	set tabTTYs to item windowIndex of windowTTYs
+	if tabTTYs is not missing value then
+		repeat with tabIndex from 1 to count of tabTTYs
+			set oneTTY to item tabIndex of tabTTYs
+			if oneTTY is not missing value and oneTTY is not "" then
+				set oneName to ""
+				try
+					set tabTitles to item windowIndex of windowTitles
+					if titlesVerified and (count of tabTitles) is (count of tabTTYs) then set oneName to item tabIndex of tabTitles
+				end try
+				if oneName is missing value or oneName is "" then set oneName to "Terminal.app · " & oneTTY
+				set cleanName to ""
+				repeat with oneCharacter in characters of oneName
+					set characterCode to id of oneCharacter
+					if characterCode < 32 or (characterCode ≥ 127 and characterCode ≤ 159) or characterCode is 8232 or characterCode is 8233 then
+						set cleanName to cleanName & " "
+					else
+						set cleanName to cleanName & oneCharacter
+					end if
+				end repeat
+				set outputText to outputText & oneTTY & tab & cleanName & linefeed
+			end if
+		end repeat
+	end if
+end repeat
+return outputText
+' >"$tmp_dir/terminal-labels" 2>/dev/null &
+	terminal_query_pid=$!
+	for ((attempt = 0; attempt < 20; attempt++)); do
+		kill -0 "$terminal_query_pid" 2>/dev/null || break
+		/bin/sleep 0.1
+	done
+	if kill -0 "$terminal_query_pid" 2>/dev/null; then
+		kill -KILL "$terminal_query_pid" 2>/dev/null || true
+		wait "$terminal_query_pid" 2>/dev/null || true
+		terminal_query_pid=""
+		return 0
+	fi
+	query_status=0
+	wait "$terminal_query_pid" 2>/dev/null || query_status=$?
+	terminal_query_pid=""
+	((query_status == 0)) || return 0
+	while IFS=$'\t' read -r tty title; do
+		[[ -n "$tty" && -n "$title" ]] || continue
+		terminal_tty+=("${tty#/dev/}")
+		terminal_title+=("$title")
+	done <"$tmp_dir/terminal-labels"
+}
+
 print_review_section() {
-	local width i detail kill_hint
+	local width i j detail kill_hint
 	width="$(terminal_width)"
 	printf 'Needs review\n'
 	if ((${#review_pid[@]} == 0)); then
@@ -633,6 +744,14 @@ print_review_section() {
 	for ((i = 0; i < ${#review_pid[@]}; i++)); do
 		detail="$(format_entry_detail "${review_pid[i]}" "${review_age[i]}" "${review_cpu[i]}" "${review_memory[i]}" "${review_details[i]}")"
 		print_name_detail_row "${review_name[i]}" "$detail" "$width"
+		if [[ "${review_agent[i]}" == agent && "${review_tty[i]}" != '??' && "${review_tty[i]}" != - ]]; then
+			for ((j = 0; j < ${#terminal_tty[@]}; j++)); do
+				if [[ "${review_tty[i]#/dev/}" == "${terminal_tty[j]}" ]]; then
+					print_continuation_line "terminal: ${terminal_title[j]}" "$width"
+					break
+				fi
+			done
+		fi
 		kill_hint="${review_kill[i]:-}"
 		if [[ -n "$kill_hint" ]]; then
 			print_continuation_line "kill: launchctl remove $kill_hint" "$width"
