@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -uo pipefail
-exp="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root="$(mktemp -d "${TMPDIR:-/tmp}/slopstop-test.XXXXXX")"
 trap 'rm -rf "$test_root"' EXIT
 bin="$test_root/bin"; mkdir -p "$bin"
-runner="$exp/slopstop"
+runner="$root/scripts/slopstop"
 fail_test() { echo "FAIL: $1" >&2; exit 1; }
 run_scan() { (PATH="$bin:$PATH" HOME="$test_root/home" SLOPSTOP_WIDTH="${SLOPSTOP_WIDTH:-100}" "$runner" "$@"); }
 make_stub() { local name="$1" body="$2"; printf '%s\n' '#!/usr/bin/env bash' "$body" >"$bin/$name"; chmod +x "$bin/$name"; }
@@ -120,6 +120,7 @@ set +e
 output="$(run_scan 2>&1)"; exit_status=$?
 set -e
 [[ "$exit_status" -ne 0 && "$output" == *'supports macOS only'* ]] || fail_test 'unsupported platform was accepted'
+[[ "$output" == *'open an issue or discussion at https://github.com/ejboy/agent-scripts'* ]] || fail_test 'unsupported platform message omitted support path'
 make_stub uname 'echo Darwin'
 
 printf '%s\n' container-1 >"$FAKE_CONTAINERS"
@@ -643,4 +644,5 @@ output="$(
 [[ "$output" == *'Needs review'* && "$output" == *'pid 200'* && "$output" == *'opencode'* ]] || fail_test 'review report missing after progress lifecycle'
 
 bash -n "$runner" || fail_test 'syntax check failed'
-echo 'slopstop tests passed'
+python3 "$root/tests/test-slopstop-terminal-labels.py" || fail_test 'Terminal AppleScript tests failed'
+printf '%s\n' 'slopstop tests passed'

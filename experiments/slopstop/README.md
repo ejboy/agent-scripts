@@ -1,10 +1,12 @@
 # SlopStop
 
-Experimental macOS-only developer workload scanner. Not part of the public
-`scripts/` interface or repository release tooling. Everything for this
-experiment lives in this directory.
+macOS-only developer workload scanner, now available as a public script while
+its thresholds and output are dogfooded. The implementation and repository
+tests live in `../../scripts/` and `../../tests/`; this directory retains the
+detector guide and development history.
 
-Executable: `./slopstop` (from this directory).
+Executable: `../../scripts/slopstop` (from this directory), or `slopstop` when
+the repository's `scripts/` directory is on `PATH`.
 
 ## Safe to stop
 
@@ -65,10 +67,9 @@ budget; failures and timeouts omit labels. Detached agents do not trigger a look
 - Interactive browsers without detached-debug flags
 - System processes and other users’ processes
 
-## Validation (local to this experiment)
+## Validation
 
 ```bash
-./test-slopstop.sh
-python3 ./test-terminal-labels.py
-shellcheck --severity=warning ./slopstop ./test-slopstop.sh
+../../tests/test-slopstop.sh
+shellcheck --severity=warning ../../scripts/slopstop ../../tests/test-slopstop.sh
 ```

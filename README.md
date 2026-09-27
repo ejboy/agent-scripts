@@ -28,6 +28,10 @@ provide `handoff` for continuing sessions in Badger and `badger-review` for inde
 - `vscode-test` — compact, approval-friendly VS Code extension testing
 - `repolink` — RepoLink, for local repository and agent-capability discovery
 
+### Local Workload Helper
+
+- `slopstop` — scan for stale developer workloads on macOS and optionally stop verified idle services
+
 See [choosing the right tool](docs/choosing-tools.md) for measured output savings, recommended use cases, and experiment limitations.
 
 Public, standalone utilities live under `scripts/`. Repository release tooling lives
@@ -111,6 +115,24 @@ go-lite --full test ./...
 
 See the [`go-lite` guide](docs/go-lite.md) for cache behavior, failure logs,
 limitations, and sandbox expectations.
+
+## slopstop
+
+`slopstop` reports safe-to-stop Colima, Gradle, and mvnd candidates only after
+checking their native status. Old or resource-heavy processes appear under
+“Needs review” and are never stopped automatically. The default scan is
+read-only; `--stop` confirms once, and `--stop-safe` stops safe candidates
+without prompting. Each safe candidate is checked again immediately before
+stopping. SlopStop supports macOS only.
+
+```bash
+slopstop
+slopstop --stop
+```
+
+The current detector rules and limitations are in the
+[SlopStop guide](experiments/slopstop/README.md). During dogfooding, add this
+repository's `scripts/` directory to `PATH` as shown above.
 
 ## launch-browser
 

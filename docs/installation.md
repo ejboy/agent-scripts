@@ -50,12 +50,12 @@ git clone https://github.com/ejboy/agent-scripts.git ~/.local/share/agent-script
 export PATH="$HOME/.local/share/agent-scripts/scripts:$PATH"
 ```
 
-Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `go-lite`, `html-screenshot`, `launch-browser`, `vscode-test`, and `repolink` by name from any project.
+Add the `export` line to your shell startup file, such as `~/.zshrc` or `~/.bashrc`, to make the tools available in future sessions. Open a new shell afterward, or run the `export` command in the current shell. You can then invoke `mvn-lite`, `npm-lite`, `go-lite`, `html-screenshot`, `launch-browser`, `vscode-test`, `repolink`, and (on macOS) `slopstop` by name from any project.
 
-Verify that the shell can find all seven commands:
+Verify that the shell can find the commands:
 
 ```bash
-command -v mvn-lite npm-lite go-lite html-screenshot launch-browser vscode-test repolink
+command -v mvn-lite npm-lite go-lite html-screenshot launch-browser vscode-test repolink slopstop
 ```
 
 ### Codex sandbox access for browser and VS Code tools

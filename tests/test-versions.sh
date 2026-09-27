@@ -37,6 +37,7 @@ assert_script_version "$root/scripts/repolink" repolink AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/npm-lite" npm-lite AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/go-lite" go-lite AGENT_SCRIPTS_VERSION
 assert_script_version "$root/scripts/vscode-test" vscode-test AGENT_SCRIPTS_VERSION
+assert_script_version "$root/scripts/slopstop" slopstop AGENT_SCRIPTS_VERSION
 
 grep -Fq "badge/version-$expected_version-blue" "$root/README.md" ||
 	fail_test "README version badge does not match VERSION"

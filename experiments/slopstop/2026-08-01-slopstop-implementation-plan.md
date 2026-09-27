@@ -1,5 +1,10 @@
 # SlopStop Implementation Plan
 
+SlopStop was promoted to `scripts/slopstop` for regular dogfooding before Phase 4
+was completed. Tests now live under `tests/`. Earlier phase notes describe the
+experimental implementation and may not reflect the current detector rules;
+see this directory's README for current behavior.
+
 Issue: N/A
 Status: Active
 Created: 2026-08-01

@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 
-# slopstop 0.1.0
+# slopstop 0.3.0
 # Concise, conservative reports of forgotten local developer workloads.
+# https://github.com/ejboy/agent-scripts
 
-set -uo pipefail
+set -euo pipefail
 
-readonly SLOPSTOP_VERSION="0.1.0"
+readonly AGENT_SCRIPTS_VERSION="0.3.0"
 readonly MIN_OLD_AGE_SECONDS=$((8 * 60 * 60))
 readonly HIGH_CPU_AGE_SECONDS=$((60 * 60))
 readonly REVIEW_CPU_PERCENT=5
@@ -36,7 +37,7 @@ review_tty=(); review_agent=(); terminal_tty=(); terminal_title=()
 
 usage() {
 	printf '%s\n' \
-		"SlopStop $SLOPSTOP_VERSION" \
+		"SlopStop $AGENT_SCRIPTS_VERSION" \
 		"Usage: slopstop [--stop|--stop-safe|--help]" \
 		"  (default)   Scan and report only; never changes machine state." \
 		"  --stop      Stop all safe candidates after one y/N confirmation." \
@@ -52,6 +53,7 @@ cleanup() {
 	fi
 	clear_scan_progress
 	[[ -n "$tmp_dir" && -d "$tmp_dir" ]] && rm -rf -- "$tmp_dir"
+	return 0
 }
 trap cleanup EXIT
 
@@ -76,6 +78,7 @@ clear_scan_progress() {
 	if [[ -n "${SLOPSTOP_PROGRESS_CLEARED_FILE:-}" ]]; then
 		: >"$SLOPSTOP_PROGRESS_CLEARED_FILE"
 	fi
+	return 0
 }
 interrupt() {
 	clear_scan_progress
@@ -94,7 +97,8 @@ while (($# > 0)); do
 	shift
 done
 
-[[ "$(uname -s)" == "Darwin" ]] || fail "SlopStop supports macOS only"
+[[ "$(uname -s)" == "Darwin" ]] ||
+	fail "SlopStop supports macOS only. For support on another platform, open an issue or discussion at https://github.com/ejboy/agent-scripts"
 current_user="$(id -un 2>/dev/null || true)"
 [[ -n "$current_user" ]] || fail "could not determine current user"
 ps_command="$(command -v ps 2>/dev/null || true)"

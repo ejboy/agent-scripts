@@ -6,7 +6,7 @@ if sys.platform != "darwin":
     print("Terminal AppleScript tests require macOS")
     sys.exit(0)
 
-source = Path(__file__).with_name("slopstop").read_text()
+source = (Path(__file__).resolve().parent.parent / "scripts" / "slopstop").read_text()
 start = source.index("if application \"Terminal\" is not running", source.index("collect_terminal_labels()"))
 end = source.index("\n' >", start)
 script = source[start:end].replace('if application "Terminal" is not running then return ""', '')
