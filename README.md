@@ -131,7 +131,7 @@ slopstop --stop
 ```
 
 The current detector rules and limitations are in the
-[SlopStop guide](experiments/slopstop/README.md). During dogfooding, add this
+[SlopStop guide](docs/slopstop.md). During dogfooding, add this
 repository's `scripts/` directory to `PATH` as shown above.
 
 ## launch-browser

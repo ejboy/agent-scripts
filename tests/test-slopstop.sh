@@ -274,6 +274,26 @@ output="$(run_scan)"
 [[ "$output" != *'pid 322'* ]] || fail_test 'generic python app was reviewed as http.server'
 
 printf '%s\n' \
+  'developer  323  1  08:00:00  0.0  524288 /usr/local/bin/limactl hostagent --pidfile /tmp/lima.pid default' \
+  'developer  324  1  08:00:00  0.0  524287 /usr/local/bin/limactl hostagent default' \
+  'developer  325  1  10:00:00  0.0  5000 /usr/local/bin/limactl list' \
+  'developer  326  1  10:00:00  0.0  5000 /bin/bash -c limactl hostagent default' \
+  'other      327  1  10:00:00  40.0  5000 /usr/local/bin/limactl hostagent default' \
+  'developer  328  1  07:59:59  0.0  524288 /usr/local/bin/limactl hostagent young' \
+  'developer  329  1  08:00:00  5.0  5000 /usr/local/bin/limactl hostagent busy' \
+  'developer  339  1  01:00:00 20.0  5000 /usr/local/bin/limactl hostagent hot' \
+  'developer  338  1  01:00:00 19.9  5000 /usr/local/bin/limactl hostagent quiet' >"$FAKE_PS_OUTPUT"
+output="$(run_scan --stop-safe)"
+[[ "$output" == *'Lima'* && "$output" == *'pid 323'* && "$output" == *'host agent; inspect: limactl list'* ]] || fail_test 'old large Lima host agent was not reviewed'
+for pid in 329 339; do
+	[[ "$output" == *"pid $pid"* ]] || fail_test "busy Lima host agent pid $pid was not reviewed"
+done
+for pid in 324 325 326 327 328 338; do
+	[[ "$output" != *"pid $pid"* ]] || fail_test "unrelated Lima fixture pid $pid was reviewed"
+done
+[[ "$output" != *'Stopped Lima'* ]] || fail_test 'Lima host agent was stopped automatically'
+
+printf '%s\n' \
   'developer  330  1  01:22  0.1  217244 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --remote-debugging-port=9222 --headless=new' \
   'developer  331  1  10:00:00 90.0 100000 /Applications/Google Chrome.app/Contents/Frameworks/Google Chrome Framework.framework/Versions/1/Helpers/Google Chrome Helper --type=renderer' \
   'developer  332  1  10:00:00 90.0 400000 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome' \
@@ -536,10 +556,10 @@ output="$(run_scan)"
 
 printf '%s\n' \
   'developer  9210  1  08:00:00  0.0  102400 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
-  'developer  9211  1  08:00:00  0.0  2097151 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
-  'developer  9212  1  08:00:00  0.0  2097152 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
-  'developer  9213  1  08:00:00  0.0  2097152 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
-  'developer  9214  1  07:59:59  0.0  2097152 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9211  1  08:00:00  0.0  524287 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
+  'developer  9212  1  08:00:00  0.0  524288 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
+  'developer  9213  1  08:00:00  0.0  524288 /Applications/OrbStack.app/Contents/MacOS/OrbStack' \
+  'developer  9214  1  07:59:59  0.0  524288 /Applications/Docker.app/Contents/MacOS/Docker Desktop' \
   'developer  9215  1  01:00:00  20.0  100000 /Applications/OrbStack.app/Contents/MacOS/OrbStack' >"$FAKE_PS_OUTPUT"
 output="$(run_scan)"
 for pid in 9210 9211 9214; do

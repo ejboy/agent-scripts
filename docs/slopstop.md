@@ -1,11 +1,9 @@
 # SlopStop
 
-macOS-only developer workload scanner, now available as a public script while
-its thresholds and output are dogfooded. The implementation and repository
-tests live in `../../scripts/` and `../../tests/`; this directory retains the
-detector guide and development history.
+macOS-only developer workload scanner. The implementation and repository
+tests live in `../scripts/` and `../tests/`.
 
-Executable: `../../scripts/slopstop` (from this directory), or `slopstop` when
+Executable: `../scripts/slopstop` (from this directory), or `slopstop` when
 the repository's `scripts/` directory is on `PATH`.
 
 ## Safe to stop
@@ -25,22 +23,27 @@ Kotlin daemons stay **Needs review** unless covered by Gradle status.
 ## Needs review (never auto-stopped)
 
 - **`python -m http.server`** — age ≥8h only (no CPU/RSS gate); detail includes port (default 8000). Never safe-to-stop.
+- **Lima host agents** — `limactl hostagent` processes use the same review thresholds as Docker Desktop and OrbStack. Inspect instances with `limactl list`; never auto-stopped.
 - Allowlisted workloads (Codex, Claude, OpenCode, other dev servers, JVM daemons not proven idle, …) with **age/CPU/RSS** gates (see thresholds below)
 - **Detached debug browsers** — main Chrome/Chromium/Edge/Brave binary with headless and/or remote-debugging flags; **no** age/CPU/RSS gate; helpers and interactive sessions ignored. When SlopStop can associate the browser with a PVR Labs launch-browser job, it prints `kill: launchctl remove <label>`.
-- **Docker Desktop / OrbStack** — main app binary only (not backends/helpers); same CPU gates as allowlisted processes, but memory requires **≥8h and ≥2 GiB RSS**. These are resource-based review hints, without a container-idleness check.
+- **Docker Desktop / OrbStack** — main app binary only (not backends/helpers); same review thresholds as Lima. These are resource-based review hints, without a container-idleness check.
 
 ### Resource gates (ps heuristic)
 
 | Scope                | Age |     Metric |
 | -------------------- | --: | ---------: |
 | `python -m http.server` | ≥8h | (none) |
+| Lima host agent, Docker Desktop, OrbStack | ≥8h | CPU ≥5% or RSS ≥512 MiB |
+| Lima host agent, Docker Desktop, OrbStack | ≥1h | CPU ≥20% |
 | Allowlisted workload | ≥8h |    CPU ≥5% |
 | Allowlisted workload | ≥1h |   CPU ≥20% |
 | Allowlisted workload | ≥8h | RSS ≥100 MiB |
 | Otherwise-unrecognized current-user process | ≥8h | CPU ≥20% |
 | Otherwise-unrecognized current-user process | ≥8h | RSS ≥1 GiB |
 
-The thresholds are hardcoded. The memory rule does not require CPU activity;
+The thresholds are hardcoded. The RSS shown for these runtimes belongs to the
+reported host agent or main app process; it is not the runtime or VM's total
+memory footprint. The memory rule does not require CPU activity;
 age alone does not establish that a process is abandoned. Codex and Claude
 recognition covers native executables and canonical Node/Bun invocations with
 the package entrypoint immediately after the runtime executable. Runtime options
@@ -70,6 +73,6 @@ budget; failures and timeouts omit labels. Detached agents do not trigger a look
 ## Validation
 
 ```bash
-../../tests/test-slopstop.sh
-shellcheck --severity=warning ../../scripts/slopstop ../../tests/test-slopstop.sh
+../tests/test-slopstop.sh
+shellcheck --severity=warning ../scripts/slopstop ../tests/test-slopstop.sh
 ```

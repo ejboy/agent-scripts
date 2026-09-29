@@ -13,7 +13,7 @@ readonly REVIEW_CPU_PERCENT=5
 readonly HIGH_CPU_PERCENT=20
 readonly REVIEW_RSS_KB=$((100 * 1024))
 readonly GENERIC_REVIEW_RSS_KB=$((1024 * 1024))
-readonly CONTAINER_REVIEW_RSS_KB=$((2 * 1024 * 1024))
+readonly RUNTIME_REVIEW_RSS_KB=$((512 * 1024))
 # Two-column layout: name min width + gap + details. PID/metrics live in details.
 readonly NAME_COLUMN_WIDTH=12
 readonly MIN_DETAIL_WIDTH=20
@@ -249,6 +249,10 @@ python_http_server_port() {
 	done
 	printf '%s\n' "${port:-8000}"
 }
+is_lima_hostagent() {
+	local name="$1" command_line="$2"
+	[[ "$name" == limactl && "$command_line" =~ ^[^[:space:]]+[[:space:]]+hostagent([[:space:]]|$) ]]
+}
 
 # Raw qemu/Virtualization is intentionally not listed (not actionable).
 is_agent_process() {
@@ -371,13 +375,17 @@ collect_reviews() {
 			reason="detached debug browser"
 			launch_label="$(launchctl_label_for_browser "$pid" "$ppid")" || launch_label=""
 		elif is_container_app_review "$command_line"; then
-			is_review_candidate "$age" "$cpu" "$rss" "$CONTAINER_REVIEW_RSS_KB" || continue
+			is_review_candidate "$age" "$cpu" "$rss" "$RUNTIME_REVIEW_RSS_KB" || continue
 			name="$(container_app_display_name "$command_line")"
 			reason="container runtime"
 		elif is_python_http_server "$command_line"; then
 			# Age-only: idle leftovers are the useful signal; never auto-stop.
 			((age >= MIN_OLD_AGE_SECONDS)) || continue
 			reason="old dev server; port $(python_http_server_port "$command_line")"
+		elif is_lima_hostagent "$name" "$command_line"; then
+			is_review_candidate "$age" "$cpu" "$rss" "$RUNTIME_REVIEW_RSS_KB" || continue
+			name="Lima"
+			reason="host agent; inspect: limactl list"
 		else
 			if is_allowlisted_process "$name" "$command_line"; then
 				is_review_candidate "$age" "$cpu" "$rss" || continue
