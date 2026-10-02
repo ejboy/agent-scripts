@@ -1,15 +1,29 @@
 # Agent Skills
 
-Agent Scripts provides two current Agent Skills for coding-agent workflows:
+Agent Scripts provides these Agent Skills for coding-agent workflows:
 
 - [`repolink`](repolink/SKILL.md) for targeted repository and local-tool discovery.
 - [`lite-tools`](lite-tools/SKILL.md) for more introverted Maven, npm/Node, and Go test workflows that reduce noisy output and token/context usage.
+- [`lightweight-monitoring`](lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring, reusing framework facilities and integrating StatLite when appropriate.
 
-Install both globally with the Skills CLI:
+Install the two utility skills globally with the Skills CLI:
 
 ```bash
 npx skills add ejboy/agent-scripts --global --skill repolink --skill lite-tools
 ```
+
+Install the monitoring skill separately:
+
+```bash
+npx skills add ejboy/agent-scripts --global --skill lightweight-monitoring
+```
+
+Try asking: "Add lightweight monitoring to this application." The skill checks
+the framework, existing instrumentation, and deployment model, then preserves
+suitable monitoring or implements a minimal StatLite integration when one fits.
+It covers Spring Boot, Quarkus, FastAPI, Django, Express, and Go through canonical
+integration guides. Application-owned StatLite helpers support one process or
+worker. The skill does not require the Agent Scripts commands.
 
 The deprecated [`repo-map` compatibility Skill](repo-map/SKILL.md) remains
 available for existing agent configurations and directs agents to `repolink`.

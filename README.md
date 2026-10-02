@@ -5,10 +5,11 @@
 
 agent-scripts is a collection of small, local-first command-line utilities for AI-assisted development. Its primary tools, `mvn-lite`, `npm-lite`, and `go-lite`, reduce build and test output noise so agents retain more useful context. Supporting utilities cover browser automation, VS Code extension testing, and local repository discovery. Scripts use predictable command names, work well from PATH, and are designed to be easy for both developers and coding agents to discover and invoke.
 
-Agent Scripts provides two Agent Skills:
+Agent Scripts provides these Agent Skills:
 
 - `repolink` for repository and local-tool discovery
 - `lite-tools` for quieter, token-efficient Maven, npm/Node, and Go test workflows
+- [`lightweight-monitoring`](skills/lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring with framework-native facilities and optional StatLite integrations
 
 Related: [AI Badger handoff skills](https://github.com/PVRLabs/aibadger/tree/main/skills)
 provide `handoff` for continuing sessions in Badger and `badger-review` for independent reviews.
@@ -70,7 +71,7 @@ Add the `export` line to your shell startup file to make the tools available in 
 > [!NOTE]
 > Skills and command installation are separate. See
 > [`skills/README.md`](skills/README.md) for installing this repository's
-> `repolink` and `lite-tools` skills. The repository installer installs
+> skills, including the optional monitoring experiment. The repository installer installs
 > commands only and does not invoke the Skills CLI.
 
 See the [installation guide](docs/installation.md) for shell setup, updates, uninstalling, and optional project-local pinning.
