@@ -1,10 +1,11 @@
 # Agent Skills
 
-Agent Scripts provides these Agent Skills for coding-agent workflows:
+Agent Scripts provides these Agent Skills:
 
 - [`repolink`](repolink/SKILL.md) for targeted repository and local-tool discovery.
 - [`lite-tools`](lite-tools/SKILL.md) for more introverted Maven, npm/Node, and Go test workflows that reduce noisy output and token/context usage.
 - [`lightweight-monitoring`](lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring, reusing framework facilities and integrating StatLite when appropriate.
+- [`article-polish`](article-polish/SKILL.md) (experimental) for reader-focused editorial review across article genres, including visuals; review only by default.
 
 Install the two utility skills globally with the Skills CLI:
 
@@ -27,6 +28,17 @@ worker. The skill does not require the Agent Scripts commands.
 
 The deprecated [`repo-map` compatibility Skill](repo-map/SKILL.md) remains
 available for existing agent configurations and directs agents to `repolink`.
+
+Install the article review skill separately:
+
+```bash
+npx skills add ejboy/agent-scripts --global --skill article-polish
+```
+
+Ask "Review this article for readability" to receive findings without edits.
+Ask "Polish this article" to apply targeted improvements. The skill defaults to
+review only when editing is not explicitly requested and respects no-edit
+constraints.
 
 Skills are separate from the distributable command-line tools. See the [main
 repository README](../README.md) for command installation and PATH setup.
