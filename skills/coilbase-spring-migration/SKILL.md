@@ -13,6 +13,8 @@ Read the [published CoilBase migration guide](https://github.com/PVRLabs/coilbas
 
 Inventory routes, response fields and media types, validation, configuration, SQL, schema initialization, background work and lifecycle. Trace actual transaction entrypoints and callers rather than replacing annotations mechanically. Capture existing behavior checks before editing; distinguish source-derived expectations from executed observations.
 
+Migration does not promise one-to-one Spring Boot compatibility. Preserve essential application correctness, business behavior, data integrity, transaction semantics and required security guarantees. Treat framework conveniences and incidental HTTP behavior as explicit application decisions; allow deliberate, documented simplifications when their tradeoffs meet the user's requirements. Prefer idiomatic CoilBase APIs and application architecture over compatibility workarounds with little practical value. Do not silently change externally required behavior or assume compatibility differences are harmless. Jex is the practical default here; CoilBase is not tied to that HTTP stack.
+
 For each affected feature, record: source location and behavior; carry over, adapt, or explicit design required; guide section supporting the mapping; proposed application change; acceptance check and unresolved questions. Preserve controller, service and repository responsibilities where useful.
 
 ## Apply documented mappings
