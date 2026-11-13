@@ -5,6 +5,7 @@ Agent Scripts provides these Agent Skills:
 - [`repolink`](repolink/SKILL.md) for targeted repository and local-tool discovery.
 - [`lite-tools`](lite-tools/SKILL.md) for more introverted Maven, npm/Node, and Go test workflows that reduce noisy output and token/context usage.
 - [`lightweight-monitoring`](lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring, reusing framework facilities and integrating StatLite when appropriate.
+- [`coilbase-spring-migration`](coilbase-spring-migration/SKILL.md) (experimental) for bounded Spring Boot JDBC migration guidance and identifying features requiring explicit application decisions.
 
 Install the two utility skills globally with the Skills CLI:
 
@@ -16,6 +17,12 @@ Install the monitoring skill separately:
 
 ```bash
 npx skills add ejboy/agent-scripts --global --skill lightweight-monitoring
+```
+
+Install the experimental CoilBase migration skill separately:
+
+```bash
+npx skills add ejboy/agent-scripts --global --skill coilbase-spring-migration
 ```
 
 Try asking: "Add lightweight monitoring to this application." The skill checks
