@@ -26,8 +26,8 @@ use the JPA migration skill to migrate persistence first. Spring Boot and
 Spring MVC can remain in place, and retaining Hibernate is an explicit
 alternative. If moving off Spring Boot is also in scope after a CoilBase/Jdbi
 migration, use the Spring migration skill for the remaining infrastructure
-and reuse the migrated persistence layer. Each skill can be installed and
-used independently.
+and reuse the migrated persistence layer. Install either migration skill
+independently with the Skills CLI:
 
 ```bash
 npx skills add ejboy/agent-scripts --global --skill coilbase-spring-migration

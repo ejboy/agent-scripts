@@ -13,6 +13,8 @@ Trace one business operation from its route, batch job or scheduler through actu
 
 Choose explicit SQL or retained Hibernate for the slice. Replacing ORM persistence while keeping Spring Boot and Spring MVC can be the final scope or the first phase of a broader migration. If the user also wants to move off Spring Boot, verify the persistence slice first and reuse it in the infrastructure phase. The optional `coilbase-spring-migration` skill covers that phase. Choose HTTP, rendering and deployment changes according to the requested scope. Preserve business behavior, data integrity and required security guarantees. Record deliberate differences and resolve application decisions that materially affect the contract.
 
+The [combined PetClinic trial](https://github.com/PVRLabs/experiments/tree/main/java/coilbase/petclinic-combined) migrated all three PetClinic JPA repositories to CoilBase/Jdbi while retaining Spring Boot and Spring MVC. Verification covered H2, with caller-supplied repository sorting outside the accepted scope. Read its README first, then fetch only the files needed for the task. A checkout of the experiments repository is unnecessary.
+
 ## Implement with existing facilities
 
 - Keep the application's recognizable service and repository boundaries and use explicit constructor wiring. Use CoilBase's shared `RepositoryContext`, `SqlStatement` and Jdbi callbacks for SQL. Make row mapping, generated keys, field updates, relationship reads and related writes explicit. See [persistence patterns](references/persistence-patterns.md) for loading, ownership, constraints and Hibernate retention.

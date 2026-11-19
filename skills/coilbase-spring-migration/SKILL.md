@@ -39,6 +39,8 @@ For JPA relationships, explicitly decide loading queries and ordering, generated
 
 The [PetClinic migration](https://github.com/ejboy/coilbase-petclinic/blob/main/docs/migration.md) is supporting evidence for these decisions, not a required architecture or an automatic JPA/Thymeleaf recipe. Consult its relevant implementation and contract when using an example. Label application-local workarounds and accepted differences; do not generalize its renderer, session design or SQL loading strategy into CoilBase requirements.
 
+The [combined PetClinic trial](https://github.com/PVRLabs/experiments/tree/main/java/coilbase/petclinic-combined) then removed Spring Boot and Spring MVC, using Avaje Jex with the same CoilBase/Jdbi repository files. Verification covered H2, with caller-supplied repository sorting outside the accepted scope. The trial documents its rendering, flash-message, and health endpoint choices. Read its README first, then fetch only the files needed for the task. A checkout of the experiments repository is unnecessary.
+
 ## Verify and report
 
 Use independent disposable data for original and migrated applications. Compare HTTP success and errors (including media types), committed rows and invalid-write rejection. Force failure after an earlier write, verify rollback and subsequent recovery; exercise outer transactions and competing edits where relevant. Check initialization, database readiness, shutdown, packaged restart and persistence. Repeat database-specific checks for every claimed backend.
