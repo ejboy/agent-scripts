@@ -1,6 +1,6 @@
 ---
 name: coilbase-spring-migration
-description: Assess and carry out bounded Spring Boot JDBC migrations to CoilBase with Avaje Jex using the published migration guide. Identify JPA, presentation and other unsupported mappings that require explicit application decisions.
+description: Migrate Spring Boot JDBC workflows directly to CoilBase, or move Spring Boot infrastructure after a workflow already uses CoilBase/Jdbi. Avaje Jex is the default HTTP stack. For workflows that still depend on JPA or Hibernate, assess persistence first.
 ---
 
 # Spring Boot to CoilBase migration
@@ -30,6 +30,8 @@ Use the guide sections on wiring, JDBC, transactions, exceptions, configuration 
 - Preserve deployment environment names, defaults and initialization policy. Define database-backed readiness, background startup, shutdown and failed-start cleanup. Enable static serving only where required and test the packaged assets.
 
 ## Resolve features beyond the guide's JDBC mappings
+
+Check the affected workflow for Spring Data JPA repositories, mapped entities or direct `EntityManager` or Hibernate `Session` calls. Verify actual usage in mixed applications. If the goal is to move off both the ORM and Spring Boot, migrate and verify persistence first. The optional `coilbase-jpa-migration` skill covers that phase. Then reuse the CoilBase/Jdbi layer while adapting HTTP, configuration, wiring and lifecycle.
 
 Spring Data/JPA, entity management, security, Actuator, scheduling annotations and full Spring property/transaction semantics have no established automatic conversion here. Identify the decisions and required evidence before implementing them. Do not introduce a migration framework or transformation engine, or change CoilBase APIs to fit the migration.
 

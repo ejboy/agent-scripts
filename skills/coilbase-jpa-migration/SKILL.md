@@ -1,6 +1,6 @@
 ---
 name: coilbase-jpa-migration
-description: Assess or migrate application workflows that use JPA, Spring Data JPA, or Hibernate to CoilBase. Use to replace ORM behavior with explicit SQL and Jdbi, or to retain Hibernate while moving application infrastructure. For JDBC-only Spring Boot migrations, use the Spring JDBC migration skill when available.
+description: Assess or migrate JPA, Spring Data JPA, and Hibernate workflows to CoilBase/Jdbi, with Spring Boot and Spring MVC optionally retained. Also covers retaining Hibernate as an explicit migration choice.
 ---
 
 # Migrate JPA and Hibernate workflows to CoilBase
@@ -11,7 +11,7 @@ Read the [CoilBase migration guide](https://github.com/PVRLabs/coilbase/blob/mai
 
 Trace one business operation from its route, batch job or scheduler through actual callers to committed state. Locate Spring Data queries, flush-driven writes, cascades and ownership, lazy reads, ordering, identity generation, callbacks, caches, and transaction entry points that the operation uses. Check the actual schema and initialization policy, required database dialects and any existing-data compatibility requirement. Capture the baseline behavior before changing it, with separate disposable data for comparison. Mark what is observed, source-derived or still unknown.
 
-Choose explicit SQL or retained Hibernate for the slice. Choose HTTP, rendering and deployment changes according to the requested scope. Preserve business behavior, data integrity and required security guarantees. Record deliberate differences and resolve application decisions that materially affect the contract.
+Choose explicit SQL or retained Hibernate for the slice. Replacing ORM persistence while keeping Spring Boot and Spring MVC can be the final scope or the first phase of a broader migration. If the user also wants to move off Spring Boot, verify the persistence slice first and reuse it in the infrastructure phase. The optional `coilbase-spring-migration` skill covers that phase. Choose HTTP, rendering and deployment changes according to the requested scope. Preserve business behavior, data integrity and required security guarantees. Record deliberate differences and resolve application decisions that materially affect the contract.
 
 ## Implement with existing facilities
 
