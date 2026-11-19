@@ -11,6 +11,7 @@ Agent Scripts provides these Agent Skills:
 - `lite-tools` for quieter, token-efficient Maven, npm/Node, and Go test workflows
 - [`lightweight-monitoring`](skills/lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring with framework-native facilities and optional StatLite integrations
 - [`coilbase-spring-migration`](skills/coilbase-spring-migration/SKILL.md) (experimental) for bounded Spring Boot JDBC migration guidance
+- [`coilbase-jpa-migration`](skills/coilbase-jpa-migration/SKILL.md) (experimental) for JPA and Hibernate migrations to CoilBase
 
 Related: [AI Badger handoff skills](https://github.com/PVRLabs/aibadger/tree/main/skills)
 provide `handoff` for continuing sessions in Badger and `badger-review` for independent reviews.

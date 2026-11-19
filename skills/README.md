@@ -6,6 +6,7 @@ Agent Scripts provides these Agent Skills:
 - [`lite-tools`](lite-tools/SKILL.md) for more introverted Maven, npm/Node, and Go test workflows that reduce noisy output and token/context usage.
 - [`lightweight-monitoring`](lightweight-monitoring/SKILL.md) (experimental) for minimal application monitoring, reusing framework facilities and integrating StatLite when appropriate.
 - [`coilbase-spring-migration`](coilbase-spring-migration/SKILL.md) (experimental) for bounded Spring Boot JDBC migration guidance and identifying features requiring explicit application decisions.
+- [`coilbase-jpa-migration`](coilbase-jpa-migration/SKILL.md) (experimental) for JPA and Hibernate migrations to CoilBase
 
 Install the two utility skills globally with the Skills CLI:
 
@@ -19,10 +20,18 @@ Install the monitoring skill separately:
 npx skills add ejboy/agent-scripts --global --skill lightweight-monitoring
 ```
 
-Install the experimental CoilBase migration skill separately:
+Choose the CoilBase skill that fits the workflow. Use the Spring migration
+skill for Spring Boot workflows that already use JDBC. Use the JPA migration
+skill for workflows that rely on JPA, Spring Data JPA, or Hibernate, whether
+you plan to replace the ORM with explicit SQL or retain Hibernate. Each skill
+can be installed and used independently.
 
 ```bash
 npx skills add ejboy/agent-scripts --global --skill coilbase-spring-migration
+```
+
+```bash
+npx skills add ejboy/agent-scripts --global --skill coilbase-jpa-migration
 ```
 
 Try asking: "Add lightweight monitoring to this application." The skill checks
