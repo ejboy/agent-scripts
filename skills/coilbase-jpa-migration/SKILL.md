@@ -7,7 +7,7 @@ description: Assess or migrate application workflows that use JPA, Spring Data J
 
 ## Establish the slice and contract
 
-Read the [CoilBase migration guide](https://github.com/PVRLabs/coilbase/blob/main/docs/spring-boot-migration.md) for the JDBC and lifecycle foundation. Check the target versions against the guide and consult version-matched API sources when details differ. The case studies in [persistence patterns](references/persistence-patterns.md) use Preview 4 and show application choices.
+Read the [CoilBase migration guide](https://github.com/PVRLabs/coilbase/blob/main/docs/spring-boot-migration.md) for the JDBC and lifecycle foundation. Check the target versions against the guide and consult version-matched API sources when details differ. The case studies in [persistence patterns](references/persistence-patterns.md) use Preview 4 and show application choices. For a persistence-only migration that keeps Spring Boot, see [retained Spring wiring](references/retained-spring.md).
 
 Trace one business operation from its route, batch job or scheduler through actual callers to committed state. Locate Spring Data queries, flush-driven writes, cascades and ownership, lazy reads, ordering, identity generation, callbacks, caches, and transaction entry points that the operation uses. Check the actual schema and initialization policy, required database dialects and any existing-data compatibility requirement. Capture the baseline behavior before changing it, with separate disposable data for comparison. Mark what is observed, source-derived or still unknown.
 
